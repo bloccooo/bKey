@@ -4,28 +4,13 @@ An encrypted, serverless team secret manager. Secrets are stored as an [Automerg
 
 ## Install
 
-### macOS (Apple Silicon)
-
 ```sh
-curl -L https://github.com/bloccooo/bKey/releases/latest/download/bkey-darwin-arm64 -o bkey
-chmod +x bkey && sudo mv bkey /usr/local/bin/bkey
+curl -fsSL https://raw.githubusercontent.com/bloccooo/bKey/main/install.sh | bash
 ```
 
-### macOS (Intel)
+Supports macOS (Apple Silicon & Intel) and Linux (x64). The binary is installed to `/usr/local/bin/bkey`.
 
-```sh
-curl -L https://github.com/bloccooo/bKey/releases/latest/download/bkey-darwin-x64 -o bkey
-chmod +x bkey && sudo mv bkey /usr/local/bin/bkey
-```
-
-### Linux (x64)
-
-```sh
-curl -L https://github.com/bloccooo/bKey/releases/latest/download/bkey-linux-x64 -o bkey
-chmod +x bkey && sudo mv bkey /usr/local/bin/bkey
-```
-
-> **Linux note:** bKey uses your system keychain via [libsecret](https://wiki.gnome.org/Projects/Libsecret). Install it with:
+> **Linux note:** bKey uses your system keychain via [libsecret](https://wiki.gnome.org/Projects/Libsecret). Install it first if needed:
 > ```sh
 > sudo apt install libsecret-1-0   # Debian/Ubuntu
 > sudo dnf install libsecret       # Fedora
