@@ -1,6 +1,11 @@
 import * as p from "@clack/prompts";
+import { randomUUIDv7 } from "bun";
+import * as A from "@automerge/automerge";
 import { writeConfig, readConfig, type StorageConfig } from "../config";
-import { saveCredentials } from "../keychain";
+import { saveCredentials, saveIdentity } from "../keychain";
+import { backendFromConfig } from "../storage";
+import { loadOrCreate, persist } from "../store";
+import { derivePrivateKey, getPublicKey, generateDek, wrapDek } from "../crypto";
 
 export async function cmdInit() {
   const existing = await readConfig();
@@ -84,7 +89,40 @@ export async function cmdInit() {
     });
   }
 
-  await writeConfig({ storage });
+  // --- Passphrase & encryption key setup ---
+  p.log.step("Setting up encryption keys…");
 
-  p.outro(`Config saved to bkey.config.json`);
+  const passphrase = await p.password({ message: "Create a passphrase" });
+  if (p.isCancel(passphrase) || !passphrase) { p.cancel("Cancelled."); return; }
+
+  const confirm = await p.password({ message: "Confirm passphrase" });
+  if (p.isCancel(confirm)) { p.cancel("Cancelled."); return; }
+  if (passphrase !== confirm) { p.cancel("Passphrases do not match."); return; }
+
+  const storageBackend = await backendFromConfig(storage);
+  let doc = await loadOrCreate(storageBackend);
+
+  const memberId = randomUUIDv7();
+  const privateKey = derivePrivateKey(passphrase, doc.id);
+  const publicKey = getPublicKey(privateKey);
+  const dek = generateDek();
+  const wrappedDek = wrapDek(dek, publicKey);
+
+  doc = A.change(doc, "init members", (d) => {
+    d.members = {};
+    d.members[memberId] = {
+      id: memberId,
+      publicKey: Buffer.from(publicKey).toString("base64"),
+      wrappedDek,
+    };
+  });
+
+  await persist(doc, storageBackend);
+  await saveIdentity(doc.id, {
+    memberId,
+    privateKey: Buffer.from(privateKey).toString("base64"),
+  });
+  await writeConfig({ storage, workspaceId: doc.id });
+
+  p.outro("Workspace initialised. Run bkey ui to manage secrets.");
 }

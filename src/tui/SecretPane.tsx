@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { Secret } from "../types";
+import type { PlaintextSecret } from "../types";
 
 export const SecretPane = ({
   secrets,
@@ -8,7 +8,7 @@ export const SecretPane = ({
   focused,
   showValues,
 }: {
-  secrets: Secret[];
+  secrets: PlaintextSecret[];
   selected: number;
   focused: boolean;
   showValues: boolean;

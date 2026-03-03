@@ -4,7 +4,7 @@ import { Box, Text } from "ink";
 import { App } from "../tui/App";
 import { readConfig } from "../config";
 import { backendFromConfig, localBackend } from "../storage";
-import { loadOrCreate } from "../store";
+import { unlockWorkspace } from "./unlock";
 
 export async function cmdUi() {
   const config = await readConfig();
@@ -16,6 +16,6 @@ export async function cmdUi() {
     )
   );
 
-  const doc = await loadOrCreate(backend);
-  rerender(React.createElement(App, { initialDoc: doc, backend }));
+  const { doc, session } = await unlockWorkspace(config, backend);
+  rerender(React.createElement(App, { initialDoc: doc, backend, session }));
 }

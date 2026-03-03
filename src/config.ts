@@ -34,6 +34,7 @@ export type StorageConfig =
 
 export type BKeyConfig = {
   storage: StorageConfig;
+  workspaceId?: string;  // stored after init; used to re-derive identity key
 };
 
 export async function readConfig(): Promise<BKeyConfig | null> {

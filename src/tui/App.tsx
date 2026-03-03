@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import * as A from "@automerge/automerge";
-import type { Workspace } from "../types";
+import type { Workspace, PlaintextSecret } from "../types";
 import type { StorageBackend } from "../storage";
-import { addSecret, removeSecret, updateSecret } from "../secrets";
+import { addSecret, removeSecret, updateSecret, listSecrets } from "../secrets";
 import { addProject, removeProject, updateProject, setProjectSecrets } from "../projects";
-import { persist } from "../store";
+import { persist, type Session } from "../store";
 import { ProjectPane } from "./ProjectPane";
 import { SecretPane } from "./SecretPane";
 import { Form, type FormField } from "./Form";
@@ -25,9 +25,11 @@ const PROJECT_FIELDS: FormField[] = [{ label: "Name" }];
 export const App = ({
   initialDoc,
   backend,
+  session,
 }: {
   initialDoc: A.Doc<Workspace>;
   backend: StorageBackend;
+  session: Session;
 }) => {
   const { exit } = useApp();
   const [doc, setDoc] = useState(initialDoc);
@@ -51,7 +53,7 @@ export const App = ({
   const [psSelectedIds, setPsSelectedIds] = useState<Set<string>>(new Set());
 
   const projects = Object.values(doc.projects);
-  const secrets = Object.values(doc.secrets);
+  const secrets: PlaintextSecret[] = listSecrets(doc, session.dek);
   const fields = mode === "new-secret" || mode === "edit-secret" ? SECRET_FIELDS : PROJECT_FIELDS;
 
   useEffect(() => {
@@ -103,13 +105,13 @@ export const App = ({
   const submitForm = (allValues: string[]) => {
     if (mode === "new-secret") {
       const [name = "", value = "", description = "", tagsStr = ""] = allValues;
-      setDoc((d) => addSecret(d, { name, value, description, tags: tagsStr.split(",").map((t) => t.trim()).filter(Boolean) }));
+      setDoc((d) => addSecret(d, session.dek, { name, value, description, tags: tagsStr.split(",").map((t) => t.trim()).filter(Boolean) }));
     } else if (mode === "new-project") {
       const [name = ""] = allValues;
       setDoc((d) => addProject(d, name));
     } else if (mode === "edit-secret" && editingId) {
       const [name = "", value = "", description = "", tagsStr = ""] = allValues;
-      setDoc((d) => updateSecret(d, editingId, { name, value, description, tags: tagsStr.split(",").map((t) => t.trim()).filter(Boolean) }));
+      setDoc((d) => updateSecret(d, session.dek, editingId, { name, value, description, tags: tagsStr.split(",").map((t) => t.trim()).filter(Boolean) }));
     } else if (mode === "edit-project" && editingId) {
       const [name = ""] = allValues;
       setDoc((d) => updateProject(d, editingId, name));

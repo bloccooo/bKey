@@ -1,6 +1,6 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { Secret } from "../types";
+import type { PlaintextSecret } from "../types";
 
 export const ProjectSecretsView = ({
   projectName,
@@ -9,7 +9,7 @@ export const ProjectSecretsView = ({
   cursor,
 }: {
   projectName: string;
-  secrets: Secret[];
+  secrets: PlaintextSecret[];
   selectedIds: Set<string>;
   cursor: number;
 }) => (

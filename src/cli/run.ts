@@ -1,8 +1,8 @@
 import { readConfig } from "../config";
 import { backendFromConfig, localBackend } from "../storage";
-import { loadOrCreate } from "../store";
 import { readBKeyFile } from "../bkey-file";
 import { listSecrets } from "../secrets";
+import { unlockWorkspace } from "./unlock";
 
 function parseArgs(args: string[]): {
   projectName?: string;
@@ -40,9 +40,9 @@ export async function cmdRun(args: string[]) {
   // Load doc from storage
   const config = await readConfig();
   const backend = config ? await backendFromConfig(config.storage) : localBackend(".");
-  const doc = await loadOrCreate(backend);
+  const { doc, session } = await unlockWorkspace(config, backend);
 
-  const allSecrets = listSecrets(doc);
+  const allSecrets = listSecrets(doc, session.dek);
 
   // Build env vars from the project's secrets (or all secrets if no project)
   const envVars: Record<string, string> = {};
