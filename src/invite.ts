@@ -1,5 +1,5 @@
 import type { StorageConfig } from "./config";
-import { loadCredentials, saveCredentials } from "./keychain";
+import { loadCredentials } from "./keychain";
 
 export type InvitePayload = {
   storage: StorageConfig;
@@ -8,8 +8,8 @@ export type InvitePayload = {
 
 const INVITE_PREFIX = "bkey-invite:";
 
-export async function generateInvite(storage: StorageConfig): Promise<string> {
-  const credentials = await loadCredentials(storage.backend) ?? {};
+export async function generateInvite(storage: StorageConfig, workspaceId: string): Promise<string> {
+  const credentials = await loadCredentials(storage.backend, workspaceId) ?? {};
   const payload: InvitePayload = { storage, credentials };
   const b64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${INVITE_PREFIX}${b64}`;
@@ -25,10 +25,6 @@ export function parseInvite(link: string): InvitePayload {
   }
 }
 
-export async function applyInvite(link: string): Promise<StorageConfig> {
-  const payload = parseInvite(link);
-  if (Object.keys(payload.credentials).length > 0) {
-    await saveCredentials(payload.storage.backend, payload.credentials);
-  }
-  return payload.storage;
+export function applyInvite(link: string): InvitePayload {
+  return parseInvite(link);
 }

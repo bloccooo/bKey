@@ -1,22 +1,49 @@
 import keytar from "keytar";
 
 const SERVICE = "bkey";
+const VAULT_ACCOUNT = "vault";
+// All secrets for a workspace are stored in a single keychain entry so macOS
+// only prompts once per workspace. Account name: "${VAULT_ACCOUNT}-{workspaceId}".
+
+type Vault = Record<string, string>;
+
+const vaultCaches = new Map<string, Vault>();
+
+async function loadVault(workspaceId: string): Promise<Vault> {
+  const cached = vaultCaches.get(workspaceId);
+  if (cached !== undefined) return cached;
+  const raw = await keytar.getPassword(SERVICE, `${VAULT_ACCOUNT}-${workspaceId}`);
+  let vault: Vault = {};
+  if (raw) {
+    try { vault = JSON.parse(raw); } catch {}
+  }
+  vaultCaches.set(workspaceId, vault);
+  return vault;
+}
+
+async function saveVault(workspaceId: string, vault: Vault): Promise<void> {
+  vaultCaches.set(workspaceId, vault);
+  await keytar.setPassword(SERVICE, `${VAULT_ACCOUNT}-${workspaceId}`, JSON.stringify(vault));
+}
 
 // --- Storage backend credentials ---
-// Stored as JSON per backend type.
-// e.g. service="bkey", account="s3" → { accessKeyId, secretAccessKey }
 
 export async function saveCredentials(
   backend: string,
-  creds: Record<string, string>
+  creds: Record<string, string>,
+  workspaceId: string,
 ): Promise<void> {
-  await keytar.setPassword(SERVICE, backend, JSON.stringify(creds));
+  const vault = await loadVault(workspaceId);
+  vault[backend] = JSON.stringify(creds);
+  await saveVault(workspaceId, vault);
 }
 
 export async function loadCredentials(
-  backend: string
+  backend: string,
+  workspaceId: string,
 ): Promise<Record<string, string> | null> {
-  const raw = await keytar.getPassword(SERVICE, backend);
+  const vault = await loadVault(workspaceId);
+  const raw = vault[backend];
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -25,8 +52,10 @@ export async function loadCredentials(
   }
 }
 
-export async function deleteCredentials(backend: string): Promise<void> {
-  await keytar.deletePassword(SERVICE, backend);
+export async function deleteCredentials(backend: string, workspaceId: string): Promise<void> {
+  const vault = await loadVault(workspaceId);
+  delete vault[backend];
+  await saveVault(workspaceId, vault);
 }
 
 // --- Member identity ---
@@ -39,11 +68,14 @@ export type Identity = {
 };
 
 export async function saveIdentity(workspaceId: string, identity: Identity): Promise<void> {
-  await keytar.setPassword(SERVICE, `identity-${workspaceId}`, JSON.stringify(identity));
+  const vault = await loadVault(workspaceId);
+  vault["identity"] = JSON.stringify(identity);
+  await saveVault(workspaceId, vault);
 }
 
 export async function loadIdentity(workspaceId: string): Promise<Identity | null> {
-  const raw = await keytar.getPassword(SERVICE, `identity-${workspaceId}`);
+  const vault = await loadVault(workspaceId);
+  const raw = vault["identity"];
   if (!raw) return null;
   try {
     return JSON.parse(raw);

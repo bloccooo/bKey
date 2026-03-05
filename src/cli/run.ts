@@ -1,5 +1,6 @@
 import { readConfig } from "../config";
-import { backendFromConfig, localBackend } from "../storage";
+import { backendFromConfig, backendFromConfigAndCreds, cacheBackend, localBackend } from "../storage";
+import { peekWorkspaceId } from "../store";
 import { readBKeyFile } from "../bkey-file";
 import { listSecrets } from "../secrets";
 import { unlockWorkspace } from "./unlock";
@@ -39,7 +40,15 @@ export async function cmdRun(args: string[]) {
 
   // Load doc from storage
   const config = await readConfig();
-  const backend = config ? await backendFromConfig(config.storage) : localBackend(".");
+  let backend;
+  if (config) {
+    const workspaceId = await peekWorkspaceId(cacheBackend());
+    backend = workspaceId
+      ? await backendFromConfig(config.storage, workspaceId)
+      : backendFromConfigAndCreds(config.storage, {});
+  } else {
+    backend = localBackend(".");
+  }
   const { doc, session } = await unlockWorkspace(backend);
 
   const allSecrets = listSecrets(doc, session.dek);

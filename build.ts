@@ -13,6 +13,18 @@ const automergeBase64Plugin: BunPlugin = {
         "node_modules/@automerge/automerge/dist/mjs/entrypoints/fullfat_base64.js"
       ),
     }));
+
+    // Fix deprecated initSync() call in wasm_bindgen output
+    build.onLoad(
+      { filter: /wasm_bindgen_output\/web\/index\.js$/ },
+      async ({ path }) => {
+        const text = await Bun.file(path).text();
+        return {
+          contents: text.replace("initSync(wasmBlob)", "initSync({ module: wasmBlob })"),
+          loader: "js",
+        };
+      }
+    );
   },
 };
 

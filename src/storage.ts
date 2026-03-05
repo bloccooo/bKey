@@ -62,8 +62,10 @@ export function s3Backend(config: S3Config): StorageBackend {
 
 // --- Backend from bkey.config.json (credentials loaded from keychain) ---
 
-export async function backendFromConfig(config: StorageConfig): Promise<StorageBackend> {
-  const creds = await loadCredentials(config.backend) ?? {};
+export function backendFromConfigAndCreds(
+  config: StorageConfig,
+  creds: Record<string, string> = {},
+): StorageBackend {
   const { type, options } = configToBackendOptions(config, creds);
   const op = new Operator(type, options);
   return {
@@ -78,6 +80,14 @@ export async function backendFromConfig(config: StorageConfig): Promise<StorageB
       }
     },
   };
+}
+
+export async function backendFromConfig(
+  config: StorageConfig,
+  workspaceId: string,
+): Promise<StorageBackend> {
+  const creds = await loadCredentials(config.backend, workspaceId) ?? {};
+  return backendFromConfigAndCreds(config, creds);
 }
 
 // --- Local cache backend (.bkey.cache in the current directory) ---

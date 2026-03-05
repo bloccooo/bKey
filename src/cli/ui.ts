@@ -3,13 +3,25 @@ import React from "react";
 import { Box, Text } from "ink";
 import { App } from "../tui/App";
 import { readConfig } from "../config";
-import { backendFromConfig, localBackend } from "../storage";
+import { backendFromConfig, backendFromConfigAndCreds, cacheBackend, localBackend } from "../storage";
 import { unlockWorkspace } from "./unlock";
 import { generateInvite } from "../invite";
+import { peekWorkspaceId } from "../store";
 
 export async function cmdUi() {
   const config = await readConfig();
-  const backend = config ? await backendFromConfig(config.storage) : localBackend(".");
+
+  // Peek at the local cache to get workspaceId so credentials can be loaded
+  // from the right vault entry before connecting to the remote backend.
+  let backend;
+  if (config) {
+    const workspaceId = await peekWorkspaceId(cacheBackend());
+    backend = workspaceId
+      ? await backendFromConfig(config.storage, workspaceId)
+      : backendFromConfigAndCreds(config.storage, {});
+  } else {
+    backend = localBackend(".");
+  }
 
   const { rerender, unmount } = render(
     React.createElement(Box, { paddingX: 1 },
@@ -19,7 +31,7 @@ export async function cmdUi() {
 
   try {
     const { doc, session } = await unlockWorkspace(backend);
-    const inviteLink = config ? await generateInvite(config.storage) : undefined;
+    const inviteLink = config ? await generateInvite(config.storage, doc.id) : undefined;
     rerender(React.createElement(App, { initialDoc: doc, backend, session, inviteLink }));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

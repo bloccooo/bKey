@@ -70,6 +70,20 @@ export async function loadOrCreate(
 }
 
 /**
+ * Read the workspaceId from the local cache without creating or syncing anything.
+ * Returns null if no cache exists yet.
+ */
+export async function peekWorkspaceId(cache: StorageBackend): Promise<string | null> {
+  const binary = await cache.pull();
+  if (!binary) return null;
+  try {
+    return A.load<Workspace>(binary).id;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Unlock the workspace using a private key.
  */
 export async function unlock(
