@@ -5,6 +5,7 @@ import { App } from "../tui/App";
 import { readConfig } from "../config";
 import { backendFromConfig, localBackend } from "../storage";
 import { unlockWorkspace } from "./unlock";
+import { generateInvite } from "../invite";
 
 export async function cmdUi() {
   const config = await readConfig();
@@ -18,7 +19,8 @@ export async function cmdUi() {
 
   try {
     const { doc, session } = await unlockWorkspace(backend);
-    rerender(React.createElement(App, { initialDoc: doc, backend, session }));
+    const inviteLink = config ? await generateInvite(config.storage) : undefined;
+    rerender(React.createElement(App, { initialDoc: doc, backend, session, inviteLink }));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     rerender(

@@ -6,7 +6,7 @@ const [cmd, ...rest] = process.argv.slice(2);
 
 switch (cmd) {
   case "init":
-    await cmdInit();
+    await cmdInit(rest[0]);
     break;
   case "ui":
     await cmdUi();
@@ -17,7 +17,7 @@ switch (cmd) {
   default:
     console.log("Usage: bkey <command>");
     console.log("Commands:");
-    console.log("  init             Set up a new workspace, or join an existing one");
+    console.log("  init [invite]    Set up a new workspace, or join an existing one");
     console.log("  ui               Open the TUI dashboard");
     console.log("  run -- <cmd>     Inject secrets into a subprocess");
     console.log("    --project <n>  Override project (default: from .bkey)");

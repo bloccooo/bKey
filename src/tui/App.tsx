@@ -13,7 +13,7 @@ import { MembersPane } from "./MembersPane";
 import { Form, type FormField } from "./Form";
 import { ProjectSecretsView } from "./ProjectSecretsView";
 
-type Mode = "list" | "new-secret" | "new-project" | "edit-secret" | "edit-project" | "project-secrets";
+type Mode = "list" | "new-secret" | "new-project" | "edit-secret" | "edit-project" | "project-secrets" | "invite";
 
 const SECRET_FIELDS: FormField[] = [
   { label: "Name" },
@@ -28,10 +28,12 @@ export const App = ({
   initialDoc,
   backend,
   session,
+  inviteLink,
 }: {
   initialDoc: A.Doc<Workspace>;
   backend: StorageBackend;
   session: Session;
+  inviteLink?: string;
 }) => {
   const { exit } = useApp();
   const [doc, setDoc] = useState(initialDoc);
@@ -153,6 +155,12 @@ export const App = ({
       } else if (char === "n" || key.escape) {
         setMemberToGrant(null);
       }
+      return;
+    }
+
+    // --- Invite view ---
+    if (mode === "invite") {
+      if (key.escape) { setMode("list"); return; }
       return;
     }
 
@@ -286,7 +294,31 @@ export const App = ({
         setMemberToGrant(member.id);
       }
     }
+
+    if (char === "i" && focus === "members" && inviteLink) {
+      setMode("invite");
+    }
   });
+
+  if (mode === "invite") {
+    return (
+      <Box flexDirection="column" padding={1} gap={1}>
+        <Text bold color="cyan">Invite Link</Text>
+        <Text dimColor>Share this with the person you want to invite.</Text>
+        <Text dimColor>It contains your storage config and credentials.</Text>
+        <Box marginTop={1}>
+          <Text wrap="wrap">{inviteLink}</Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>They should run:</Text>
+          <Text>  bkey init {inviteLink}</Text>
+        </Box>
+        <Box marginTop={1}>
+          <Text dimColor>[Esc] Close</Text>
+        </Box>
+      </Box>
+    );
+  }
 
   if (mode === "project-secrets") {
     const proj = editingId ? doc.projects[editingId] : null;
@@ -323,7 +355,7 @@ export const App = ({
   const footer =
     focus === "projects" ? "[n] New  [e] Edit  [s] Secrets  [d] Delete" :
     focus === "secrets"  ? "[n] New  [e] Edit  [d] Delete  [v] " + (showValues ? "Hide" : "Show") + " values" :
-    (selectedMember?.wrappedDek === "" ? "[g] Grant access  " : "") + "[d] Remove member";
+    (selectedMember?.wrappedDek === "" ? "[g] Grant access  " : "") + "[d] Remove member" + (inviteLink ? "  [i] Invite" : "");
 
   return (
     <Box flexDirection="column">

@@ -6,6 +6,7 @@ import { saveCredentials, saveIdentity } from "../keychain";
 import { backendFromConfig, cacheBackend } from "../storage";
 import type { StorageBackend } from "../storage";
 import { loadOrCreate, persist } from "../store";
+import { applyInvite } from "../invite";
 import type { Workspace } from "../types";
 import {
   derivePrivateKey,
@@ -14,14 +15,22 @@ import {
   wrapDek,
 } from "../crypto";
 
-export async function cmdInit() {
+export async function cmdInit(inviteLink?: string) {
   const existing = await readConfig();
 
   p.intro("bkey init");
 
-  // Step 1: Storage config — always needed to reach the shared doc
+  // Step 1: Storage config — from invite link, existing config, or fresh prompt
   let storage: StorageConfig;
-  if (existing) {
+  if (inviteLink) {
+    try {
+      storage = await applyInvite(inviteLink);
+    } catch (err) {
+      p.cancel(err instanceof Error ? err.message : "Invalid invite link");
+      return;
+    }
+    p.log.info(`Storage: ${storage.backend} (from invite link)`);
+  } else if (existing) {
     const overwrite = await p.confirm({
       message: "bkey.config.json already exists. Reconfigure storage?",
       initialValue: false,
@@ -52,7 +61,7 @@ export async function cmdInit() {
   if (members.length > 0) {
     // Workspace is already initialised → this user is joining, request access
     await requestAccessFlow(doc, backend);
-    if (!existing) {
+    if (inviteLink || !existing) {
       await writeConfig({ storage });
     }
   } else {
