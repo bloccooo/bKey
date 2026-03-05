@@ -28,8 +28,7 @@ export async function unlockWorkspace(
     const pubKeyB64 = Buffer.from(getPublicKey(privateKey)).toString("base64");
     const member = Object.values(doc.members ?? {}).find((m) => m.publicKey === pubKeyB64);
     if (!member) {
-      console.error("error: not a member of this workspace. Run: bkey init");
-      process.exit(1);
+      throw new Error("Not a member of this workspace. Run: bkey init");
     }
     identity = { memberId: member.id, privateKey: Buffer.from(privateKey).toString("base64") };
     await saveIdentity(workspaceId, identity);

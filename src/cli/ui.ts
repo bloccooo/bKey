@@ -10,12 +10,24 @@ export async function cmdUi() {
   const config = await readConfig();
   const backend = config ? await backendFromConfig(config.storage) : localBackend(".");
 
-  const { rerender } = render(
+  const { rerender, unmount } = render(
     React.createElement(Box, { paddingX: 1 },
       React.createElement(Text, { dimColor: true }, "Loading secrets…")
     )
   );
 
-  const { doc, session } = await unlockWorkspace(backend);
-  rerender(React.createElement(App, { initialDoc: doc, backend, session }));
+  try {
+    const { doc, session } = await unlockWorkspace(backend);
+    rerender(React.createElement(App, { initialDoc: doc, backend, session }));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    rerender(
+      React.createElement(Box, { paddingX: 1, gap: 1 },
+        React.createElement(Text, { color: "red" }, "✗"),
+        React.createElement(Text, null, message),
+      )
+    );
+    unmount();
+    process.exit(1);
+  }
 }
