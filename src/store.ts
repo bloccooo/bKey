@@ -43,12 +43,16 @@ export async function loadOrCreate(
   let doc: A.Doc<Workspace>;
 
   if (remoteBinary && cacheBinary) {
-    let localDoc = A.load<Workspace>(cacheBinary);
+    const localDoc = A.load<Workspace>(cacheBinary);
     const remoteDoc = A.load<Workspace>(remoteBinary);
-    localDoc = A.merge(localDoc, remoteDoc);
-    doc = localDoc;
-    // Push merged result back so remote is up to date with any offline changes
-    remote.push(A.save(doc)).catch(() => {});
+    if (localDoc.id === remoteDoc.id) {
+      doc = A.merge(localDoc, remoteDoc);
+      // Push merged result back so remote is up to date with any offline changes
+      remote.push(A.save(doc)).catch(() => {});
+    } else {
+      // Different workspaces — remote wins, local cache is stale
+      doc = remoteDoc;
+    }
   } else if (remoteBinary) {
     doc = A.load<Workspace>(remoteBinary);
   } else if (cacheBinary) {
@@ -122,7 +126,9 @@ export async function persist(
   const remoteBinary = await tryPull(remote);
   if (remoteBinary) {
     const remoteDoc = A.load<Workspace>(remoteBinary);
-    doc = A.merge(doc, remoteDoc);
+    if (remoteDoc.id === doc.id) {
+      doc = A.merge(doc, remoteDoc);
+    }
   }
   const binary = A.save(doc);
   await cache.push(binary);
