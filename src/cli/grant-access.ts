@@ -8,7 +8,7 @@ import { wrapDek } from "../crypto";
 
 export async function cmdGrantAccess() {
   const config = await readConfig();
-  if (!config?.workspaceId) {
+  if (!config) {
     console.error("error: workspace not initialised. Run: bkey init");
     process.exit(1);
   }
@@ -16,7 +16,7 @@ export async function cmdGrantAccess() {
   p.intro("bkey grant-access");
 
   const backend = await backendFromConfig(config.storage);
-  const { doc, session } = await unlockWorkspace(config, backend);
+  const { doc, session } = await unlockWorkspace(backend);
 
   const pending = Object.values(doc.members ?? {}).filter((m) => !m.wrappedDek);
 
@@ -53,7 +53,10 @@ export async function cmdGrantAccess() {
     for (const m of toGrant) {
       const entry = d.members[m.id];
       if (!entry) continue;
-      entry.wrappedDek = wrapDek(session.dek, Buffer.from(m.publicKey, "base64"));
+      entry.wrappedDek = wrapDek(
+        session.dek,
+        Buffer.from(m.publicKey, "base64"),
+      );
     }
     for (const m of toRemove) {
       delete d.members[m.id];
@@ -62,7 +65,5 @@ export async function cmdGrantAccess() {
 
   await persist(updated, backend);
 
-  p.outro(
-    `Done. Granted: ${toGrant.length}, removed: ${toRemove.length}.`
-  );
+  p.outro(`Done. Granted: ${toGrant.length}, removed: ${toRemove.length}.`);
 }

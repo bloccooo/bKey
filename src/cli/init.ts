@@ -21,7 +21,7 @@ export async function cmdInit() {
 
   // Step 1: Storage config — always needed to reach the shared doc
   let storage: StorageConfig;
-  if (existing?.workspaceId) {
+  if (existing) {
     const overwrite = await p.confirm({
       message: "bkey.config.json already exists. Reconfigure storage?",
       initialValue: false,
@@ -53,7 +53,7 @@ export async function cmdInit() {
     // Workspace is already initialised → this user is joining, request access
     await requestAccessFlow(doc, backend);
     if (!existing) {
-      await writeConfig({ storage, workspaceId: doc.id });
+      await writeConfig({ storage });
     }
   } else {
     // Fresh workspace → full init (create DEK, add first member)
@@ -112,7 +112,12 @@ async function collectStorageConfig(): Promise<StorageConfig | null> {
         accessKeyId: () => p.text({ message: "Access Key ID" }),
         secretAccessKey: () => p.password({ message: "Secret Access Key" }),
       },
-      { onCancel: () => { p.cancel("Cancelled."); process.exit(0); } }
+      {
+        onCancel: () => {
+          p.cancel("Cancelled.");
+          process.exit(0);
+        },
+      },
     );
     await saveCredentials("s3", {
       accessKeyId: group.accessKeyId,
@@ -134,7 +139,12 @@ async function collectStorageConfig(): Promise<StorageConfig | null> {
         accessKeyId: () => p.text({ message: "R2 Access Key ID" }),
         secretAccessKey: () => p.password({ message: "R2 Secret Access Key" }),
       },
-      { onCancel: () => { p.cancel("Cancelled."); process.exit(0); } }
+      {
+        onCancel: () => {
+          p.cancel("Cancelled.");
+          process.exit(0);
+        },
+      },
     );
     await saveCredentials("r2", {
       accessKeyId: group.accessKeyId,
@@ -157,10 +167,14 @@ async function collectStorageConfig(): Promise<StorageConfig | null> {
         }),
       username: () =>
         p.text({ message: "Username (leave blank if none)", defaultValue: "" }),
-      password: () =>
-        p.password({ message: "Password (leave blank if none)" }),
+      password: () => p.password({ message: "Password (leave blank if none)" }),
     },
-    { onCancel: () => { p.cancel("Cancelled."); process.exit(0); } }
+    {
+      onCancel: () => {
+        p.cancel("Cancelled.");
+        process.exit(0);
+      },
+    },
   );
   await saveCredentials("webdav", {
     ...(group.username ? { username: group.username } : {}),
@@ -171,7 +185,7 @@ async function collectStorageConfig(): Promise<StorageConfig | null> {
 
 async function requestAccessFlow(
   doc: A.Doc<Workspace>,
-  backend: StorageBackend
+  backend: StorageBackend,
 ) {
   p.log.step("Workspace found. Requesting access…");
 
@@ -186,13 +200,13 @@ async function requestAccessFlow(
   const pubKeyB64 = Buffer.from(publicKey).toString("base64");
 
   const existingMember = Object.values(doc.members ?? {}).find(
-    (m) => m.publicKey === pubKeyB64
+    (m) => m.publicKey === pubKeyB64,
   );
   if (existingMember) {
     p.outro(
       existingMember.wrappedDek
         ? "You already have access to this workspace."
-        : "Access request already pending. Wait for an existing member to run 'bkey grant-access'."
+        : "Access request already pending. Wait for an existing member to run 'bkey grant-access'.",
     );
     return;
   }
@@ -200,7 +214,11 @@ async function requestAccessFlow(
   const memberId = randomUUIDv7();
   const updated = A.change(doc, "request access", (d) => {
     if (!d.members) d.members = {};
-    d.members[memberId] = { id: memberId, publicKey: pubKeyB64, wrappedDek: "" };
+    d.members[memberId] = {
+      id: memberId,
+      publicKey: pubKeyB64,
+      wrappedDek: "",
+    };
   });
 
   await persist(updated, backend);
@@ -209,13 +227,15 @@ async function requestAccessFlow(
     privateKey: Buffer.from(privateKey).toString("base64"),
   });
 
-  p.outro("Access requested. An existing member needs to run 'bkey grant-access' to approve you.");
+  p.outro(
+    "Access requested. An existing member needs to run 'bkey grant-access' to approve you.",
+  );
 }
 
 async function fullInitFlow(
   storage: StorageConfig,
   backend: StorageBackend,
-  doc: A.Doc<Workspace>
+  doc: A.Doc<Workspace>,
 ) {
   p.log.step("Setting up encryption keys…");
 
@@ -255,7 +275,7 @@ async function fullInitFlow(
     memberId,
     privateKey: Buffer.from(privateKey).toString("base64"),
   });
-  await writeConfig({ storage, workspaceId: updated.id });
+  await writeConfig({ storage });
 
   p.outro("Workspace initialised. Run bkey ui to manage secrets.");
 }

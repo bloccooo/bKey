@@ -40,7 +40,7 @@ export async function cmdRun(args: string[]) {
   // Load doc from storage
   const config = await readConfig();
   const backend = config ? await backendFromConfig(config.storage) : localBackend(".");
-  const { doc, session } = await unlockWorkspace(config, backend);
+  const { doc, session } = await unlockWorkspace(backend);
 
   const allSecrets = listSecrets(doc, session.dek);
 

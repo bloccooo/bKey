@@ -9,7 +9,7 @@ export type S3StorageConfig = {
   backend: "s3";
   bucket: string;
   region: string;
-  endpoint?: string;    // override for MinIO, Backblaze B2, etc.
+  endpoint?: string; // override for MinIO, Backblaze B2, etc.
   // credentials stored in keychain under account "s3"
 };
 
@@ -22,7 +22,7 @@ export type R2StorageConfig = {
 
 export type WebDavStorageConfig = {
   backend: "webdav";
-  endpoint: string;   // e.g. https://dav.example.com/vault
+  endpoint: string; // e.g. https://dav.example.com/vault
   // credentials stored in keychain under account "webdav"
 };
 
@@ -34,7 +34,6 @@ export type StorageConfig =
 
 export type BKeyConfig = {
   storage: StorageConfig;
-  workspaceId?: string;  // stored after init; used to re-derive identity key
 };
 
 export async function readConfig(): Promise<BKeyConfig | null> {
@@ -49,7 +48,7 @@ export async function writeConfig(config: BKeyConfig): Promise<void> {
 
 export function configToBackendOptions(
   config: StorageConfig,
-  creds: Record<string, string> = {}
+  creds: Record<string, string> = {},
 ): { type: string; options: Record<string, string> } {
   switch (config.backend) {
     case "local":
@@ -61,7 +60,8 @@ export function configToBackendOptions(
       };
       if (config.endpoint) options["endpoint"] = config.endpoint;
       if (creds.accessKeyId) options["access_key_id"] = creds.accessKeyId;
-      if (creds.secretAccessKey) options["secret_access_key"] = creds.secretAccessKey;
+      if (creds.secretAccessKey)
+        options["secret_access_key"] = creds.secretAccessKey;
       return { type: "s3", options };
     }
     case "r2": {
@@ -71,7 +71,8 @@ export function configToBackendOptions(
         endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
       };
       if (creds.accessKeyId) options["access_key_id"] = creds.accessKeyId;
-      if (creds.secretAccessKey) options["secret_access_key"] = creds.secretAccessKey;
+      if (creds.secretAccessKey)
+        options["secret_access_key"] = creds.secretAccessKey;
       return { type: "s3", options };
     }
     case "webdav": {

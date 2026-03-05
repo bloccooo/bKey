@@ -16,6 +16,6 @@ export async function cmdUi() {
     )
   );
 
-  const { doc, session } = await unlockWorkspace(config, backend);
+  const { doc, session } = await unlockWorkspace(backend);
   rerender(React.createElement(App, { initialDoc: doc, backend, session }));
 }
