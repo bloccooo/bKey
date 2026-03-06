@@ -11,7 +11,7 @@ import {
 import type { StorageBackend } from "../storage";
 import { loadOrCreate, persist, peekWorkspaceId } from "../store";
 import { applyInvite } from "../invite";
-import type { Workspace } from "../types";
+import type { BKeyDocument } from "../types";
 import {
   derivePrivateKey,
   getPublicKey,
@@ -233,7 +233,7 @@ async function collectStorageConfig(): Promise<StorageConfigResult | null> {
 }
 
 async function requestAccessFlow(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   backend: StorageBackend,
 ) {
   p.log.step("Workspace found. Requesting access…");
@@ -301,7 +301,7 @@ async function requestAccessFlow(
 async function fullInitFlow(
   storage: StorageConfig,
   backend: StorageBackend,
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
 ) {
   p.log.step("Setting up encryption keys…");
 

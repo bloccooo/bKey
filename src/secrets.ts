@@ -1,9 +1,12 @@
 import * as A from "@automerge/automerge";
 import { randomUUIDv7 } from "bun";
-import type { Secret, PlaintextSecret, Workspace } from "./types";
+import type { Secret, PlaintextSecret, BKeyDocument } from "./types";
 import { encryptField, decryptField } from "./crypto";
 
-function encryptSecret(fields: Omit<PlaintextSecret, "id">, dek: Uint8Array): Omit<Secret, "id"> {
+function encryptSecret(
+  fields: Omit<PlaintextSecret, "id">,
+  dek: Uint8Array,
+): Omit<Secret, "id"> {
   return {
     name: encryptField(fields.name, dek),
     value: encryptField(fields.value, dek),
@@ -23,10 +26,10 @@ function decryptSecret(s: Secret, dek: Uint8Array): PlaintextSecret {
 }
 
 export function addSecret(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   dek: Uint8Array,
-  fields: Omit<PlaintextSecret, "id">
-): A.Doc<Workspace> {
+  fields: Omit<PlaintextSecret, "id">,
+): A.Doc<BKeyDocument> {
   const id = randomUUIDv7();
   const encrypted = encryptSecret(fields, dek);
   return A.change(doc, `add secret`, (d) => {
@@ -35,9 +38,9 @@ export function addSecret(
 }
 
 export function removeSecret(
-  doc: A.Doc<Workspace>,
-  id: string
-): A.Doc<Workspace> {
+  doc: A.Doc<BKeyDocument>,
+  id: string,
+): A.Doc<BKeyDocument> {
   return A.change(doc, `remove secret ${id}`, (d) => {
     delete d.secrets[id];
     for (const project of Object.values(d.projects)) {
@@ -48,11 +51,11 @@ export function removeSecret(
 }
 
 export function updateSecret(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   dek: Uint8Array,
   id: string,
-  fields: Omit<PlaintextSecret, "id">
-): A.Doc<Workspace> {
+  fields: Omit<PlaintextSecret, "id">,
+): A.Doc<BKeyDocument> {
   const encrypted = encryptSecret(fields, dek);
   return A.change(doc, `update secret ${id}`, (d) => {
     const s = d.secrets[id];
@@ -64,6 +67,9 @@ export function updateSecret(
   });
 }
 
-export function listSecrets(doc: A.Doc<Workspace>, dek: Uint8Array): PlaintextSecret[] {
+export function listSecrets(
+  doc: A.Doc<BKeyDocument>,
+  dek: Uint8Array,
+): PlaintextSecret[] {
   return Object.values(doc.secrets).map((s) => decryptSecret(s, dek));
 }

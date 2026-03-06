@@ -1,12 +1,12 @@
 import * as A from "@automerge/automerge";
 import { randomUUIDv7 } from "bun";
-import type { Project, Workspace } from "./types";
+import type { Project, BKeyDocument } from "./types";
 
 export function addProject(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   name: string,
-  secretIds: string[] = []
-): A.Doc<Workspace> {
+  secretIds: string[] = [],
+): A.Doc<BKeyDocument> {
   const id = randomUUIDv7();
   return A.change(doc, `add project ${name}`, (d) => {
     d.projects[id] = { id, name, secret_ids: secretIds };
@@ -14,31 +14,35 @@ export function addProject(
 }
 
 export function removeProject(
-  doc: A.Doc<Workspace>,
-  id: string
-): A.Doc<Workspace> {
+  doc: A.Doc<BKeyDocument>,
+  id: string,
+): A.Doc<BKeyDocument> {
   return A.change(doc, `remove project ${id}`, (d) => {
     delete d.projects[id];
   });
 }
 
 export function addSecretToProject(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   projectId: string,
-  secretId: string
-): A.Doc<Workspace> {
-  return A.change(doc, `add secret ${secretId} to project ${projectId}`, (d) => {
-    const project = d.projects[projectId];
-    if (!project) throw new Error(`Project ${projectId} not found`);
-    project.secret_ids.push(secretId);
-  });
+  secretId: string,
+): A.Doc<BKeyDocument> {
+  return A.change(
+    doc,
+    `add secret ${secretId} to project ${projectId}`,
+    (d) => {
+      const project = d.projects[projectId];
+      if (!project) throw new Error(`Project ${projectId} not found`);
+      project.secret_ids.push(secretId);
+    },
+  );
 }
 
 export function updateProject(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   id: string,
-  name: string
-): A.Doc<Workspace> {
+  name: string,
+): A.Doc<BKeyDocument> {
   return A.change(doc, `update project ${id}`, (d) => {
     const p = d.projects[id];
     if (!p) throw new Error(`Project ${id} not found`);
@@ -47,10 +51,10 @@ export function updateProject(
 }
 
 export function setProjectSecrets(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   projectId: string,
-  secretIds: string[]
-): A.Doc<Workspace> {
+  secretIds: string[],
+): A.Doc<BKeyDocument> {
   return A.change(doc, `set secrets for project ${projectId}`, (d) => {
     const p = d.projects[projectId];
     if (!p) throw new Error(`Project ${projectId} not found`);
@@ -58,6 +62,6 @@ export function setProjectSecrets(
   });
 }
 
-export function listProjects(doc: A.Doc<Workspace>): Project[] {
+export function listProjects(doc: A.Doc<BKeyDocument>): Project[] {
   return Object.values(doc.projects);
 }

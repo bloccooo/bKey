@@ -1,6 +1,6 @@
 import * as A from "@automerge/automerge";
 import { randomUUIDv7 } from "bun";
-import type { Workspace } from "./types";
+import type { BKeyDocument } from "./types";
 import type { StorageBackend } from "./storage";
 import { getPublicKey, unwrapDek } from "./crypto";
 
@@ -10,6 +10,30 @@ export type Session = {
 };
 
 const SYNC_TIMEOUT_MS = 5000;
+
+export async function pullRemoteDocument(
+  backend: StorageBackend,
+): Promise<A.Doc<BKeyDocument> | null> {
+  const isConnected = await backend.check();
+  if (!isConnected) return null;
+
+  try {
+    await Promise.race([
+      backend.pull(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("timeout")), SYNC_TIMEOUT_MS),
+      ),
+    ]);
+
+    const files = await backend.pull();
+    if (files.length === 0) return null;
+
+    const docs = files.map((f) => A.load<BKeyDocument>(f));
+    return docs.reduce((acc, doc) => A.merge(acc, doc));
+  } catch {
+    return null;
+  }
+}
 
 async function tryPull(backend: StorageBackend): Promise<Uint8Array | null> {
   try {
@@ -34,17 +58,17 @@ async function tryPull(backend: StorageBackend): Promise<Uint8Array | null> {
 export async function loadOrCreate(
   remote: StorageBackend,
   cache: StorageBackend,
-): Promise<A.Doc<Workspace>> {
+): Promise<A.Doc<BKeyDocument>> {
   const [remoteBinary, cacheBinary] = await Promise.all([
     tryPull(remote),
     cache.pull(),
   ]);
 
-  let doc: A.Doc<Workspace>;
+  let doc: A.Doc<BKeyDocument>;
 
   if (remoteBinary && cacheBinary) {
-    const localDoc = A.load<Workspace>(cacheBinary);
-    const remoteDoc = A.load<Workspace>(remoteBinary);
+    const localDoc = A.load<BKeyDocument>(cacheBinary);
+    const remoteDoc = A.load<BKeyDocument>(remoteBinary);
     if (localDoc.id === remoteDoc.id) {
       doc = A.merge(localDoc, remoteDoc);
       // Push merged result back so remote is up to date with any offline changes
@@ -54,11 +78,11 @@ export async function loadOrCreate(
       doc = remoteDoc;
     }
   } else if (remoteBinary) {
-    doc = A.load<Workspace>(remoteBinary);
+    doc = A.load<BKeyDocument>(remoteBinary);
   } else if (cacheBinary) {
-    doc = A.load<Workspace>(cacheBinary);
+    doc = A.load<BKeyDocument>(cacheBinary);
   } else {
-    doc = A.init<Workspace>();
+    doc = A.init<BKeyDocument>();
     doc = A.change(doc, "init workspace", (d) => {
       d.id = randomUUIDv7();
       d.name = "my-workspace";
@@ -83,7 +107,7 @@ export async function peekWorkspaceId(
   const binary = await cache.pull();
   if (!binary) return null;
   try {
-    return A.load<Workspace>(binary).id;
+    return A.load<BKeyDocument>(binary).id;
   } catch {
     return null;
   }
@@ -93,9 +117,9 @@ export async function peekWorkspaceId(
  * Unlock the workspace using a private key.
  */
 export async function unlock(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   privateKey: Uint8Array,
-): Promise<{ session: Session; doc: A.Doc<Workspace> }> {
+): Promise<{ session: Session; doc: A.Doc<BKeyDocument> }> {
   const publicKey = getPublicKey(privateKey);
   const pubKeyB64 = Buffer.from(publicKey).toString("base64");
 
@@ -119,19 +143,10 @@ export async function unlock(
  * Returns the (potentially merged) doc.
  */
 export async function persist(
-  doc: A.Doc<Workspace>,
+  doc: A.Doc<BKeyDocument>,
   remote: StorageBackend,
-  cache: StorageBackend,
-): Promise<A.Doc<Workspace>> {
-  const remoteBinary = await tryPull(remote);
-  if (remoteBinary) {
-    const remoteDoc = A.load<Workspace>(remoteBinary);
-    if (remoteDoc.id === doc.id) {
-      doc = A.merge(doc, remoteDoc);
-    }
-  }
+): Promise<A.Doc<BKeyDocument>> {
   const binary = A.save(doc);
-  await cache.push(binary);
-  remote.push(binary).catch(() => {});
+  await remote.push(binary);
   return doc;
 }

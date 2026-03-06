@@ -1,11 +1,19 @@
-const CONFIG_PATH = "bkey.config.json";
+import envPaths from "env-paths";
+import path from "node:path";
 
-export type LocalStorageConfig = {
-  backend: "local";
-  root: string;
+type ConfigVersion = "v1";
+const CONFIG_PATH = path.join(envPaths("bkey").config, "config.json");
+
+export type SharedStorageConfig = {
+  root?: string;
+  // memberId: string;
 };
 
-export type S3StorageConfig = {
+export type LocalStorageConfig = SharedStorageConfig & {
+  backend: "local";
+};
+
+export type S3StorageConfig = SharedStorageConfig & {
   backend: "s3";
   bucket: string;
   region: string;
@@ -13,14 +21,14 @@ export type S3StorageConfig = {
   // credentials stored in keychain under account "s3"
 };
 
-export type R2StorageConfig = {
+export type R2StorageConfig = SharedStorageConfig & {
   backend: "r2";
   accountId: string;
   bucket: string;
   // credentials stored in keychain under account "r2"
 };
 
-export type WebDavStorageConfig = {
+export type WebDavStorageConfig = SharedStorageConfig & {
   backend: "webdav";
   endpoint: string; // e.g. https://dav.example.com/vault
   // credentials stored in keychain under account "webdav"
@@ -32,8 +40,17 @@ export type StorageConfig =
   | R2StorageConfig
   | WebDavStorageConfig;
 
-export type BKeyConfig = {
+export type WorkspaceConfig = {
+  id: string;
+  name: string;
   storage: StorageConfig;
+};
+
+export type BKeyConfig = {
+  version: ConfigVersion;
+  memberName: string;
+  memberId: string;
+  workspaces: WorkspaceConfig[];
 };
 
 export async function readConfig(): Promise<BKeyConfig | null> {
@@ -52,7 +69,7 @@ export function configToBackendOptions(
 ): { type: string; options: Record<string, string> } {
   switch (config.backend) {
     case "local":
-      return { type: "fs", options: { root: config.root } };
+      return { type: "fs", options: { root: config.root || "/" } };
     case "s3": {
       const options: Record<string, string> = {
         bucket: config.bucket,
