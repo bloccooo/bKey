@@ -1,9 +1,9 @@
-import { readConfig } from "../config";
-import { backendFromConfig, backendFromConfigAndCreds, cacheBackend, localBackend } from "../storage";
-import { peekWorkspaceId } from "../store";
+import * as p from "@clack/prompts";
+import { readConfig, type WorkspaceConfig } from "../config";
 import { readBKeyFile } from "../bkey-file";
 import { listSecrets } from "../secrets";
-import { unlockWorkspace } from "./unlock";
+import { Store, unlock } from "../store";
+import { derivePrivateKey } from "../crypto";
 
 function parseArgs(args: string[]): {
   projectName?: string;
@@ -12,7 +12,7 @@ function parseArgs(args: string[]): {
 } {
   const dashDash = args.indexOf("--");
   const before = dashDash === -1 ? args : args.slice(0, dashDash);
-  const cmd    = dashDash === -1 ? []   : args.slice(dashDash + 1);
+  const cmd = dashDash === -1 ? [] : args.slice(dashDash + 1);
 
   let projectName: string | undefined;
   let dryRun = false;
@@ -38,26 +38,51 @@ export async function cmdRun(args: string[]) {
     projectName = bkeyFile.project;
   }
 
-  // Load doc from storage
   const config = await readConfig();
-  let backend;
-  if (config) {
-    const workspaceId = await peekWorkspaceId(cacheBackend());
-    backend = workspaceId
-      ? await backendFromConfig(config.storage, workspaceId)
-      : backendFromConfigAndCreds(config.storage, {});
-  } else {
-    backend = localBackend(".");
+  if (!config || config.workspaces.length === 0) {
+    console.error("No workspaces found. Run: bkey setup");
+    process.exit(1);
   }
-  const { doc, session } = await unlockWorkspace(backend);
 
-  const allSecrets = listSecrets(doc, session.dek);
+  let workspace: WorkspaceConfig;
+
+  if (config.workspaces.length === 1) {
+    workspace = config.workspaces[0] as WorkspaceConfig;
+  } else {
+    const selected = await p.select({
+      message: "Select workspace",
+      options: config.workspaces.map((w) => ({ value: w.id, label: w.name })),
+    });
+
+    if (p.isCancel(selected)) {
+      p.cancel("Cancelled.");
+      process.exit(0);
+    }
+
+    workspace = config.workspaces.find(
+      (w) => w.id === selected,
+    ) as WorkspaceConfig;
+  }
+
+  const store = new Store({
+    memberId: config.memberId,
+    workspaceId: workspace.id,
+    storage: workspace.storage,
+  });
+
+  const doc = await store.pull();
+  const privateKey = derivePrivateKey(config.passphrase, doc.id);
+  const { session, doc: unlockedDoc } = await unlock(doc, privateKey);
+
+  const allSecrets = listSecrets(unlockedDoc, session.dek);
 
   // Build env vars from the project's secrets (or all secrets if no project)
   const envVars: Record<string, string> = {};
 
   if (projectName) {
-    const project = Object.values(doc.projects).find((p) => p.name === projectName);
+    const project = Object.values(unlockedDoc.projects).find(
+      (p) => p.name === projectName,
+    );
     if (!project) {
       console.error(`error: project "${projectName}" not found`);
       process.exit(1);
@@ -83,7 +108,9 @@ export async function cmdRun(args: string[]) {
   }
 
   if (cmd.length === 0) {
-    console.error("error: no command given. Usage: bkey run [options] -- <command>");
+    console.error(
+      "error: no command given. Usage: bkey run [options] -- <command>",
+    );
     process.exit(1);
   }
 

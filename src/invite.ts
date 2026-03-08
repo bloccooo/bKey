@@ -1,16 +1,22 @@
-import type { StorageConfig } from "./config";
-import { loadCredentials } from "./keychain";
+import type { StorageConfig } from "./storage";
+
+export type WorkspacePayload = {
+  id: string;
+  name: string;
+};
 
 export type InvitePayload = {
+  workspace: WorkspacePayload;
   storage: StorageConfig;
-  credentials: Record<string, string>;
 };
 
 const INVITE_PREFIX = "bkey-invite:";
 
-export async function generateInvite(storage: StorageConfig, workspaceId: string): Promise<string> {
-  const credentials = await loadCredentials(storage.backend, workspaceId) ?? {};
-  const payload: InvitePayload = { storage, credentials };
+export async function generateInvite(
+  storage: StorageConfig,
+  workspace: WorkspacePayload,
+): Promise<string> {
+  const payload: InvitePayload = { storage, workspace };
   const b64 = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${INVITE_PREFIX}${b64}`;
 }
