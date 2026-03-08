@@ -2,7 +2,6 @@ import { useState, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import * as A from "@automerge/automerge";
 import type { BKeyDocument, PlaintextSecret } from "../types";
-import { type StorageBackend, cacheBackend } from "../storage";
 import { addSecret, removeSecret, updateSecret, listSecrets } from "../secrets";
 import {
   addProject,
@@ -10,7 +9,7 @@ import {
   updateProject,
   setProjectSecrets,
 } from "../projects";
-import { persist, type Session } from "../store";
+import { Store, type Session } from "../store";
 import { wrapDek } from "../crypto";
 import { ProjectPane } from "./ProjectPane";
 import { SecretPane } from "./SecretPane";
@@ -38,12 +37,12 @@ const PROJECT_FIELDS: FormField[] = [{ label: "Name" }];
 
 export const App = ({
   initialDoc,
-  backend,
+  store,
   session,
   inviteLink,
 }: {
   initialDoc: A.Doc<BKeyDocument>;
-  backend: StorageBackend;
+  store: Store;
   session: Session;
   inviteLink?: string;
 }) => {
@@ -84,7 +83,7 @@ export const App = ({
 
   useEffect(() => {
     setSyncing(true);
-    persist(doc, backend, cacheBackend())
+    store.persist(doc)
       .then((merged) => {
         if (merged !== doc) setDoc(merged);
       })

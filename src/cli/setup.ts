@@ -1,22 +1,24 @@
 import * as p from "@clack/prompts";
-import * as A from "@automerge/automerge";
-import { readConfig, writeConfig, type StorageConfig } from "../config";
+import { readConfig, writeConfig } from "../config";
 import { randomUUIDv7 } from "bun";
 import { applyInvite } from "../invite";
 import { createHash } from "crypto";
-import { backendFromConfigAndCreds } from "../storage";
-import { persist, pullRemoteDocument } from "../store";
-import type { BKeyDocument } from "../types";
+import * as A from "@automerge/automerge";
+import { Store } from "../store";
+import { type StorageConfig } from "../storage";
+import {
+  derivePrivateKey,
+  generateDek,
+  getPublicKey,
+  wrapDek,
+} from "../crypto";
 
 function memberIdFromMemberName(memberName: string): string {
   const h = createHash("sha256").update(memberName).digest("hex");
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20, 32)}`;
 }
 
-async function collectStorageConfig(): Promise<{
-  storage: StorageConfig;
-  credentials: Record<string, string>;
-} | null> {
+async function collectStorageConfig(): Promise<StorageConfig> {
   const backend = await p.select({
     message: "Choose a storage backend",
     options: [
@@ -30,9 +32,10 @@ async function collectStorageConfig(): Promise<{
       { value: "webdav", label: "WebDAV", hint: "Nextcloud, ownCloud, etc." },
     ],
   });
+
   if (p.isCancel(backend)) {
     p.cancel("Cancelled.");
-    return null;
+    process.exit(0);
   }
 
   if (backend === "local") {
@@ -43,9 +46,9 @@ async function collectStorageConfig(): Promise<{
     });
     if (p.isCancel(root)) {
       p.cancel("Cancelled.");
-      return null;
+      process.exit(0);
     }
-    return { storage: { backend: "local", root }, credentials: {} };
+    return { type: "fs", root };
   }
 
   if (backend === "s3") {
@@ -75,16 +78,12 @@ async function collectStorageConfig(): Promise<{
       },
     );
     return {
-      storage: {
-        backend: "s3",
-        bucket: group.bucket,
-        region: group.region,
-        ...(group.endpoint ? { endpoint: group.endpoint } : {}),
-      },
-      credentials: {
-        accessKeyId: group.accessKeyId,
-        secretAccessKey: group.secretAccessKey,
-      },
+      type: "s3",
+      bucket: group.bucket,
+      region: group.region,
+      ...(group.endpoint ? { endpoint: group.endpoint } : {}),
+      accessKeyId: group.accessKeyId,
+      secretAccessKey: group.secretAccessKey,
     };
   }
 
@@ -104,15 +103,11 @@ async function collectStorageConfig(): Promise<{
       },
     );
     return {
-      storage: {
-        backend: "r2",
-        accountId: group.accountId,
-        bucket: group.bucket,
-      },
-      credentials: {
-        accessKeyId: group.accessKeyId,
-        secretAccessKey: group.secretAccessKey,
-      },
+      type: "r2",
+      accountId: group.accountId,
+      bucket: group.bucket,
+      accessKeyId: group.accessKeyId,
+      secretAccessKey: group.secretAccessKey,
     };
   }
 
@@ -135,178 +130,154 @@ async function collectStorageConfig(): Promise<{
       },
     },
   );
+
   return {
-    storage: { backend: "webdav", endpoint: group.endpoint },
-    credentials: {
-      ...(group.username ? { username: group.username } : {}),
-      ...(group.password ? { password: group.password } : {}),
-    },
+    type: "webdav",
+    endpoint: group.endpoint,
+    username: group.username,
+    password: group.password,
   };
 }
 
-export async function cmdSetup(inviteLink?: string) {
+export async function cmdSetup(inviteLinkArg?: string) {
   p.intro("bkey setup");
 
   let config = await readConfig();
 
   if (!config) {
-    const memberName = await p.text({
-      message: "Member name",
-    });
-
-    if (p.isCancel(memberName)) {
-      p.cancel("Cancelled.");
-      return null;
-    }
+    const group = await p.group(
+      {
+        memberName: () => p.text({ message: "Member name" }),
+        passphrase: () => p.password({ message: "Pass Phrase" }),
+      },
+      {
+        onCancel: () => {
+          p.cancel("Cancelled.");
+          process.exit(0);
+        },
+      },
+    );
 
     config = {
       version: "v1",
-      memberName,
-      memberId: memberIdFromMemberName(memberName),
+      memberName: group.memberName,
+      passphrase: group.passphrase,
+      memberId: memberIdFromMemberName(group.memberName),
       workspaces: [],
     };
 
     await writeConfig(config);
   }
 
-  // Initialize new workspace if none
-  if (config.workspaces.length === 0) {
-    const initializationAction = await p.select({
-      message: "Initialize workspace",
-      options: [
-        { value: "create", label: "Create new workspace" },
-        {
-          value: "import",
-          label: "Import existing workspace",
-        },
-      ],
-    });
+  const initializationAction = await p.select({
+    message: "Initialize workspace",
+    options: [
+      { value: "create", label: "Create new workspace" },
+      {
+        value: "import",
+        label: "Import existing workspace",
+      },
+    ],
+  });
 
-    if (p.isCancel(initializationAction)) {
+  if (p.isCancel(initializationAction)) {
+    p.cancel("Cancelled.");
+    return null;
+  }
+
+  if (initializationAction === "import" || inviteLinkArg) {
+    const inviteLink =
+      inviteLinkArg ||
+      (await p.text({
+        message: "Invite link",
+      }));
+
+    if (p.isCancel(inviteLink)) {
       p.cancel("Cancelled.");
       return null;
     }
 
-    if (initializationAction === "import") {
-      const inviteLink = await p.text({
-        message: "Invite link",
-      });
-
-      if (p.isCancel(inviteLink)) {
-        p.cancel("Cancelled.");
-        return null;
-      }
-
-      let payload;
-
-      try {
-        payload = applyInvite(inviteLink);
-      } catch (err) {
-        p.cancel(err instanceof Error ? err.message : "Invalid invite link");
-        return;
-      }
-
-      payload.storage.memberId = config.memberId;
-
-      if (payload.storage.backend === "s3") {
-        const credentials = await p.group(
-          {
-            accessKeyId: () => p.text({ message: "Access Key ID" }),
-            secretAccessKey: () => p.password({ message: "Secret Access Key" }),
-          },
-          {
-            onCancel: () => {
-              p.cancel("Cancelled.");
-              process.exit(0);
-            },
-          },
-        );
-
-        const backend = backendFromConfigAndCreds(payload.storage, credentials);
-        const isValid = await backend.check();
-
-        if (!isValid) {
-          p.cancel("Invalid storage.");
-          return null;
-        }
-
-        let document = await pullRemoteDocument(backend);
-
-        if (!document) {
-          const name = await p.text({
-            message: "Workspace name",
-          });
-
-          if (p.isCancel(name)) {
-            p.cancel("Cancelled.");
-            return null;
-          }
-
-          document = A.init<BKeyDocument>();
-
-          if (!document) {
-            p.cancel("Unable to initialize document.");
-            return null;
-          }
-
-          document = A.change(document, "init workspace", (d) => {
-            d.id = randomUUIDv7();
-            d.name = name;
-            d.doc_version = 0;
-            d.members = {};
-            d.projects = {};
-            d.secrets = {};
-          });
-        }
-
-        config.workspaces.push({
-          id: document.id,
-          name: document.name,
-          storage: payload.storage,
-        });
-
-        // await writeConfig(config);
-        await persist(document, backend);
-
-        // console.log(credentials);
-      }
-
-      console.log(payload);
-    } else {
-      const name = await p.text({
-        message: "Workspace name",
-      });
-
-      if (p.isCancel(name)) {
-        p.cancel("Cancelled.");
-        return null;
-      }
-
-      const backend = await p.select({
-        message: "Choose a storage backend",
-        options: [
-          {
-            value: "local",
-            label: "Local filesystem",
-            hint: "good for testing",
-          },
-          {
-            value: "s3",
-            label: "S3-compatible",
-            hint: "AWS S3, MinIO, Backblaze B2, etc.",
-          },
-          { value: "r2", label: "Cloudflare R2" },
-          {
-            value: "webdav",
-            label: "WebDAV",
-            hint: "Nextcloud, ownCloud, etc.",
-          },
-        ],
-      });
-      if (p.isCancel(backend)) {
-        p.cancel("Cancelled.");
-        return null;
-      }
+    let payload;
+    try {
+      payload = applyInvite(inviteLink);
+    } catch (err) {
+      p.cancel(err instanceof Error ? err.message : "Invalid invite link");
+      return;
     }
+
+    const store = new Store({
+      memberId: config.memberId,
+      workspaceId: payload.workspace.id,
+      storage: payload.storage,
+    });
+
+    let doc = await store.pull();
+
+    const privateKey = derivePrivateKey(config.passphrase, doc.id);
+    const publicKey = getPublicKey(privateKey);
+
+    config.workspaces.push({
+      id: doc.id,
+      name: doc.name,
+      storage: payload.storage,
+    });
+
+    await writeConfig(config);
+
+    doc = A.change(doc, "add member", (d) => {
+      d.members[config.memberId] = {
+        id: config.memberId,
+        email: config.memberName,
+        publicKey: Buffer.from(publicKey).toString("base64"),
+        wrappedDek: "", // Pending validation
+      };
+    });
+
+    await store.persist(doc);
+  } else {
+    const name = await p.text({
+      message: "Workspace name",
+    });
+
+    if (p.isCancel(name)) {
+      p.cancel("Cancelled.");
+      return null;
+    }
+
+    const storageConfig = await collectStorageConfig();
+    const workspaceId = randomUUIDv7();
+
+    const store = new Store({
+      memberId: config.memberId,
+      workspaceId,
+      storage: storageConfig,
+    });
+
+    config.workspaces.push({
+      id: workspaceId,
+      name: name,
+      storage: storageConfig,
+    });
+
+    await writeConfig(config);
+
+    // Initialize document
+    let doc = await store.pull();
+
+    const privateKey = derivePrivateKey(config.passphrase, doc.id);
+    const publicKey = getPublicKey(privateKey);
+    const dek = generateDek();
+    const wrappedDek = wrapDek(dek, publicKey);
+
+    doc = A.change(doc, "add member", (d) => {
+      d.members[config.memberId] = {
+        id: config.memberId,
+        email: config.memberName,
+        publicKey: Buffer.from(publicKey).toString("base64"),
+        wrappedDek,
+      };
+    });
+
+    await store.persist(doc);
   }
 }

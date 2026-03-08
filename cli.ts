@@ -1,4 +1,3 @@
-import { cmdInit } from "./src/cli/init";
 import { cmdUi } from "./src/cli/ui";
 import { cmdRun } from "./src/cli/run";
 import { cmdSetup } from "./src/cli/setup";
@@ -6,9 +5,6 @@ import { cmdSetup } from "./src/cli/setup";
 const [cmd, ...rest] = process.argv.slice(2);
 
 switch (cmd) {
-  case "init":
-    await cmdInit(rest[0]);
-    break;
   case "setup":
     await cmdSetup(rest[0]);
     break;
