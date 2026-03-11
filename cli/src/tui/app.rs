@@ -107,6 +107,9 @@ pub struct App {
     pub member_to_delete: Option<String>,
     pub member_to_grant: Option<String>,
 
+    // Invite clipboard status
+    pub clipboard_ok: bool,
+
     // Background persist task handle
     persist_task: Option<tokio::task::JoinHandle<()>>,
 }
@@ -131,6 +134,7 @@ impl App {
             member_idx: 0,
             show_values: false,
             syncing: false,
+            clipboard_ok: false,
             projects: vec![],
             secrets: vec![],
             members: vec![],
@@ -457,6 +461,9 @@ impl App {
             }
             KeyCode::Char('i') => {
                 if self.focus == Focus::Members {
+                    self.clipboard_ok = arboard::Clipboard::new()
+                        .and_then(|mut cb| cb.set_text(self.invite_link.clone()))
+                        .is_ok();
                     self.mode = Mode::Invite;
                 }
             }

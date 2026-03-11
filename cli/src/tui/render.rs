@@ -480,6 +480,18 @@ fn render_invite(f: &mut Frame, app: &App) {
             ),
         ]),
         Line::from(""),
+        if app.clipboard_ok {
+            Line::from(vec![Span::styled(
+                "Copied to clipboard!",
+                Style::default().fg(Color::Green),
+            )])
+        } else {
+            Line::from(vec![Span::styled(
+                "Could not access clipboard — copy the link above manually.",
+                Style::default().fg(Color::Yellow),
+            )])
+        },
+        Line::from(""),
         Line::from(vec![Span::styled(
             "[Esc] Close",
             Style::default().fg(Color::DarkGray),
