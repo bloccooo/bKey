@@ -119,7 +119,10 @@ impl StorageBackend {
         const MAX_CONCURRENT: usize = 8;
 
         let results = futures::stream::iter(doc_entries)
-            .map(|e| self.op.read(e.path()))
+            .map(|e| {
+                let path = e.path().to_owned();
+                async move { self.op.read(&path).await }
+            })
             .buffer_unordered(MAX_CONCURRENT)
             .filter_map(|r| async move {
                 match r {
