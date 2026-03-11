@@ -9,7 +9,7 @@ Each workspace has a single data encryption key (DEK) used to encrypt all secret
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/bloccooo/bKey/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/bloccooo/envisible/main/install.sh | bash
 ```
 
 Supports macOS (Apple Silicon & Intel) and Linux (x64). Installs to `/usr/local/bin/envi`.

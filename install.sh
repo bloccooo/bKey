@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="bloccooo/bKey"
+REPO="bloccooo/envisible"
 BIN="envi"
 INSTALL_DIR="/usr/local/bin"
 
