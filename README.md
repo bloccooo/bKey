@@ -4,7 +4,7 @@ A team secret manager. Secrets are stored encrypted in a storage backend of your
 
 ## Encryption
 
-Each workspace has a single data encryption key (DEK) used to encrypt all secret values with AES-256-GCM. The DEK is never stored in the clear — it is wrapped individually for each member using their public key (X25519 + ECIES), so only someone with the corresponding passphrase can decrypt it. The passphrase itself never leaves the device.
+Secret values are encrypted with AES-256-GCM using a shared workspace key. That key is wrapped individually for each member via X25519 + ECIES, derived from their passphrase using argon2id. The passphrase never leaves the device.
 
 ## Install
 
