@@ -1,5 +1,6 @@
 mod agent;
 mod commands;
+mod passphrase;
 mod tui;
 
 use clap::{Parser, Subcommand};

@@ -6,12 +6,7 @@ use envilib::{
     store::{unlock, Store},
 };
 
-fn prompt_passphrase() -> Result<String> {
-    dialoguer::Password::new()
-        .with_prompt("Passphrase")
-        .interact()
-        .map_err(|e| Error::Other(e.to_string()))
-}
+use crate::passphrase::prompt_passphrase;
 
 pub async fn run() -> Result<()> {
     let config = read_config().await?.ok_or(Error::NoConfig)?;
@@ -39,12 +34,12 @@ pub async fn run() -> Result<()> {
         if let Some(key) = agent.get_key(&workspace.id) {
             key
         } else {
-            let key = derive_private_key(&prompt_passphrase()?, &workspace.id)?;
+            let key = derive_private_key(&prompt_passphrase()?, &workspace.id, &config.member_id)?;
             agent.store_key(&workspace.id, &key);
             key
         }
     } else {
-        derive_private_key(&prompt_passphrase()?, &workspace.id)?
+        derive_private_key(&prompt_passphrase()?, &workspace.id, &config.member_id)?
     };
     let session = unlock(&doc, &private_key)?;
 

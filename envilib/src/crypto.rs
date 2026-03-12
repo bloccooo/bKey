@@ -12,17 +12,18 @@ use x25519_dalek::{EphemeralSecret, PublicKey, StaticSecret};
 
 // --- Key derivation ---
 
-/// Derive an X25519 private key from a passphrase and workspace ID.
-/// The workspace ID acts as the argon2id salt, binding the key to this workspace.
-/// Parameters match the TypeScript proto: t=3, m=65536, p=1, dkLen=32.
-pub fn derive_private_key(passphrase: &str, workspace_id: &str) -> Result<[u8; 32]> {
+/// Derive an X25519 private key from a passphrase, workspace ID, and member ID.
+/// The salt is `workspace_id:member_id`, binding the key to this specific member in this workspace.
+/// Parameters: t=3, m=65536, p=1, dkLen=32.
+pub fn derive_private_key(passphrase: &str, workspace_id: &str, member_id: &str) -> Result<[u8; 32]> {
     let params = Params::new(65536, 3, 1, Some(32))
         .map_err(|e| Error::Other(e.to_string()))?;
     let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
 
+    let salt = format!("{}:{}", workspace_id, member_id);
     let mut output = [0u8; 32];
     argon2
-        .hash_password_into(passphrase.as_bytes(), workspace_id.as_bytes(), &mut output)
+        .hash_password_into(passphrase.as_bytes(), salt.as_bytes(), &mut output)
         .map_err(|e| Error::Other(e.to_string()))?;
     Ok(output)
 }

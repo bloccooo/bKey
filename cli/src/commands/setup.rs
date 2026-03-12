@@ -10,22 +10,7 @@ use envilib::{
     store::Store,
     types::{EnviDocument, Member},
 };
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
-
-/// Derive a deterministic member ID from the member name (SHA-256 hash formatted as UUID).
-fn member_id_from_name(name: &str) -> String {
-    let hash = Sha256::digest(name.as_bytes());
-    let h = hex::encode(hash);
-    format!(
-        "{}-{}-{}-{}-{}",
-        &h[0..8],
-        &h[8..12],
-        &h[12..16],
-        &h[16..20],
-        &h[20..32]
-    )
-}
 
 pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
     println!("envi setup");
@@ -42,7 +27,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         let cfg = EnviConfig {
             version: "v1".to_string(),
             member_name: member_name.clone(),
-            member_id: member_id_from_name(&member_name),
+            member_id: Uuid::new_v4().to_string(),
             workspaces: vec![],
         };
         write_config(&cfg).await?;
@@ -52,10 +37,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
     let mut config = config.unwrap();
 
     // Passphrase is never persisted — always prompt
-    let passphrase: String = Password::new()
-        .with_prompt("Passphrase")
-        .interact()
-        .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
+    let passphrase = crate::passphrase::prompt_new_passphrase()?;
 
     // Choose: create new workspace or join via invite
     let action = if invite_link_arg.is_some() {
@@ -88,7 +70,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         let store = Store::new(&payload.workspace.id, &config.member_id, &payload.storage)?;
         let mut doc = store.pull().await?;
 
-        let private_key = derive_private_key(&passphrase, &payload.workspace.id)?;
+        let private_key = derive_private_key(&passphrase, &payload.workspace.id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
 
         config.workspaces.push(WorkspaceConfig {
@@ -137,7 +119,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
         let mut doc = store.pull().await?;
 
-        let private_key = derive_private_key(&passphrase, &workspace_id)?;
+        let private_key = derive_private_key(&passphrase, &workspace_id, &config.member_id)?;
         let public_key = get_public_key(&private_key);
         let dek = generate_dek();
         let wrapped_dek = wrap_dek(&dek, &public_key)?;
