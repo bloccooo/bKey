@@ -2,7 +2,7 @@
 
 A team secret manager built for the agentic era. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, or local) and synced across team members using a [CRDT](https://automerge.org). No central server required.
 
-Designed to limit secret exposure when working alongside AI agents: credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals — reducing the blast radius of prompt injection attacks.
+Designed to limit secret exposure when working alongside AI agents: credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals — protecting against both prompt injection attacks and curious agents that might read or exfiltrate secrets from the environment.
 
 ## Encryption
 
