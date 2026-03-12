@@ -1,8 +1,7 @@
 use envilib::{
     config::read_config,
-    crypto::derive_private_key,
     error::{Error, Result},
-    store::{unlock, Store},
+    store::Store,
 };
 
 pub async fn run() -> Result<()> {
@@ -17,15 +16,8 @@ pub async fn run() -> Result<()> {
         let store = Store::new(&workspace.id, &config.member_id, &workspace.storage)?;
         match store.pull().await {
             Ok(mut doc) => {
-                // Verify we can still unlock
-                let private_key = derive_private_key(&config.passphrase, &workspace.id)?;
-                match unlock(&doc, &private_key) {
-                    Ok(_) => {
-                        store.persist(&mut doc).await?;
-                        println!("ok");
-                    }
-                    Err(e) => println!("warning: {e}"),
-                }
+                store.persist(&mut doc).await?;
+                println!("ok");
             }
             Err(e) => println!("error: {e}"),
         }

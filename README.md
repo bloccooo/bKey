@@ -71,13 +71,29 @@ Pull the latest state from the storage backend and push local changes.
 envi sync
 ```
 
+### `envi logout`
+
+Stop the key agent and clear cached credentials from RAM. The next command will prompt for the passphrase again.
+
+```sh
+envi logout
+```
+
+### `envi clear`
+
+Remove all local data: stop the agent, delete the local cache, and remove the config from the OS keychain. Use this to fully reset the installation.
+
+```sh
+envi clear
+```
+
 ## Security roadmap
 
 The current implementation uses sound cryptographic primitives (AES-256-GCM, X25519/ECIES, Argon2id) but currently has known limitations.
 
 **Planned hardening, roughly in priority order:**
 
-- **Remove passphrase persistence** — the passphrase is currently stored in the OS keychain for convenience. The target design prompts at startup and keeps the derived key only in RAM, so no long-lived secret is ever written to disk or the keychain.
+- ~~**Remove passphrase persistence**~~ — done. The passphrase is never written to disk; the derived key is held only in RAM by a short-lived background agent and cleared on `envi logout`.
 - **Signed invite links** — invite links will be signed by the issuing member's private key. Peers will verify the signature on join, ensuring the invite was issued by a legitimate workspace member and preventing forged or tampered links.
 - **Member identity verification** — new members self-register by writing their own public key into the shared document. A future version will require the inviting member to countersign the joining member's public key, preventing a malicious actor from substituting their own key during the join flow.
 - **Single-use, expiring invite links** — invite links currently have no expiry and can be reused indefinitely. They will include a short-lived nonce so that replayed or leaked links cannot be used to register new members.

@@ -9,6 +9,13 @@ use envilib::{
     types::EnviDocument,
 };
 
+fn prompt_passphrase() -> Result<String> {
+    dialoguer::Password::new()
+        .with_prompt("Passphrase")
+        .interact()
+        .map_err(|e| Error::Other(e.to_string()))
+}
+
 pub async fn run(project_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -> Result<()> {
     // Resolve project name: flag → .envi file → all secrets
     let project_name = if project_arg.is_some() {
@@ -39,7 +46,17 @@ pub async fn run(project_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -
 
     let store = Store::new(&workspace.id, &config.member_id, &workspace.storage)?;
     let doc = store.pull().await?;
-    let private_key = derive_private_key(&config.passphrase, &workspace.id)?;
+    let private_key = if let Some(agent) = crate::agent::AgentClient::connect_or_start() {
+        if let Some(key) = agent.get_key(&workspace.id) {
+            key
+        } else {
+            let key = derive_private_key(&prompt_passphrase()?, &workspace.id)?;
+            agent.store_key(&workspace.id, &key);
+            key
+        }
+    } else {
+        derive_private_key(&prompt_passphrase()?, &workspace.id)?
+    };
     let session = unlock(&doc, &private_key)?;
 
     let all_secrets = list_secrets(&doc, &session.dek)?;

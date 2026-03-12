@@ -32,23 +32,17 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
     let mut config = read_config().await?;
 
-    // First-time setup: collect member name and passphrase
+    // First-time setup: collect member name
     if config.is_none() {
         let member_name: String = Input::new()
             .with_prompt("Member name")
             .interact_text()
             .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
 
-        let passphrase: String = Password::new()
-            .with_prompt("Passphrase")
-            .interact()
-            .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
-
         let cfg = EnviConfig {
             version: "v1".to_string(),
             member_name: member_name.clone(),
             member_id: member_id_from_name(&member_name),
-            passphrase,
             workspaces: vec![],
         };
         write_config(&cfg).await?;
@@ -56,6 +50,12 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
     }
 
     let mut config = config.unwrap();
+
+    // Passphrase is never persisted — always prompt
+    let passphrase: String = Password::new()
+        .with_prompt("Passphrase")
+        .interact()
+        .map_err(|e| envilib::error::Error::Other(e.to_string()))?;
 
     // Choose: create new workspace or join via invite
     let action = if invite_link_arg.is_some() {
@@ -88,7 +88,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         let store = Store::new(&payload.workspace.id, &config.member_id, &payload.storage)?;
         let mut doc = store.pull().await?;
 
-        let private_key = derive_private_key(&config.passphrase, &payload.workspace.id)?;
+        let private_key = derive_private_key(&passphrase, &payload.workspace.id)?;
         let public_key = get_public_key(&private_key);
 
         config.workspaces.push(WorkspaceConfig {
@@ -137,7 +137,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
         let mut doc = store.pull().await?;
 
-        let private_key = derive_private_key(&config.passphrase, &workspace_id)?;
+        let private_key = derive_private_key(&passphrase, &workspace_id)?;
         let public_key = get_public_key(&private_key);
         let dek = generate_dek();
         let wrapped_dek = wrap_dek(&dek, &public_key)?;

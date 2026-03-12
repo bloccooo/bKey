@@ -1,3 +1,4 @@
+mod agent;
 mod commands;
 mod tui;
 
@@ -33,6 +34,19 @@ enum Command {
     },
     /// Sync the workspace manually
     Sync,
+    /// Clear cached credentials and stop the key agent
+    Logout,
+    /// Remove all local data (cache, config, agent)
+    Clear,
+    #[command(hide = true)]
+    Agent {
+        /// Start the agent server (internal, do not use directly)
+        #[arg(long, hide = true)]
+        serve: bool,
+        /// Stop the running agent
+        #[arg(long)]
+        kill: bool,
+    },
 }
 
 #[tokio::main]
@@ -46,6 +60,9 @@ async fn main() {
             commands::run::run(project, dry_run, cmd).await
         }
         Command::Sync => commands::sync::run().await,
+        Command::Logout => agent::run(false, true).await,
+        Command::Clear => commands::clear::run().await,
+        Command::Agent { serve, kill } => agent::run(serve, kill).await,
     };
 
     if let Err(e) = result {

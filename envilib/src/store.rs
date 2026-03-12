@@ -115,7 +115,7 @@ fn init_doc(workspace_id: &str) -> AutoCommit {
     doc
 }
 
-fn cache_dir() -> PathBuf {
+pub fn cache_dir() -> PathBuf {
     ProjectDirs::from("", "", "envi")
         .map(|d| d.cache_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from(".envi-cache"))
