@@ -71,6 +71,19 @@ Pull the latest state from the storage backend and push local changes.
 envi sync
 ```
 
+## Security roadmap
+
+The current implementation uses sound cryptographic primitives (AES-256-GCM, X25519/ECIES, Argon2id) but currently has known limitations.
+
+**Planned hardening, roughly in priority order:**
+
+- **Remove passphrase persistence** — the passphrase is currently stored in the OS keychain for convenience. The target design prompts at startup and keeps the derived key only in RAM, so no long-lived secret is ever written to disk or the keychain.
+- **Signed invite links** — invite links will be signed by the issuing member's private key. Peers will verify the signature on join, ensuring the invite was issued by a legitimate workspace member and preventing forged or tampered links.
+- **Member identity verification** — new members self-register by writing their own public key into the shared document. A future version will require the inviting member to countersign the joining member's public key, preventing a malicious actor from substituting their own key during the join flow.
+- **Single-use, expiring invite links** — invite links currently have no expiry and can be reused indefinitely. They will include a short-lived nonce so that replayed or leaked links cannot be used to register new members.
+- **Authenticated CRDT documents** — each member's automerge document will be signed with their private key. Peers will reject documents with invalid signatures, preventing a storage-level attacker from injecting rogue members or wiping secrets.
+- **Scoped secret injection** — `envi run` will require secrets to be explicitly declared (e.g. in the `.envi` file) rather than injecting the full workspace vault, limiting the blast radius of prompt-injection attacks against AI agents.
+
 ## Building from source
 
 Requires Rust (stable).
