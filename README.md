@@ -1,6 +1,8 @@
 # Envisible [envi]
 
-A team secret manager. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, or local) and synced across team members using a [CRDT](https://automerge.org). No central server required.
+A team secret manager built for the agentic era. Secrets are stored encrypted in a storage backend of your choice (S3, R2, WebDAV, or local) and synced across team members using a [CRDT](https://automerge.org). No central server required.
+
+Designed to limit secret exposure when working alongside AI agents: credentials are scoped per terminal session, injected only into explicitly declared processes, and never accessible to tools running in other terminals — reducing the blast radius of prompt injection attacks.
 
 ## Encryption
 
