@@ -75,6 +75,8 @@ envi sync
 
 Stop the key agent and clear cached credentials from RAM. The next command will prompt for the passphrase again.
 
+Credentials are scoped per terminal session (TTY), so logging out in one terminal only affects that terminal. Other open terminals retain their cached credentials. TTY scoping also limits the blast radius of prompt injection attacks — a process running in a different terminal (e.g. an AI agent) cannot reuse credentials unlocked in your interactive session.
+
 ```sh
 envi logout
 ```
