@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
@@ -27,23 +27,17 @@ pub fn render(f: &mut Frame, app: &App) {
 fn render_list(f: &mut Frame, app: &App) {
     let area = f.area();
 
-    // Outer vertical split: header | body | footer
+    // Outer vertical split: body | footer
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1), // header
-            Constraint::Min(0),    // body
-            Constraint::Length(1), // footer
-        ])
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
         .split(area);
-
-    render_header(f, app, main_chunks[0]);
 
     // Body: members row on top, then projects | secrets
     let body_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(4), Constraint::Min(0)])
-        .split(main_chunks[1]);
+        .constraints([Constraint::Length(8), Constraint::Min(0)])
+        .split(main_chunks[0]);
 
     render_members(f, app, body_chunks[0]);
 
@@ -56,29 +50,7 @@ fn render_list(f: &mut Frame, app: &App) {
     render_projects(f, app, pane_chunks[0]);
     render_secrets(f, app, pane_chunks[1]);
 
-    render_footer(f, app, main_chunks[2]);
-}
-
-fn render_header(f: &mut Frame, app: &App, area: Rect) {
-    let sync_span = if app.syncing {
-        Span::styled("↑ syncing…", Style::default().fg(Color::Yellow))
-    } else {
-        Span::styled("✓ saved", Style::default().fg(Color::DarkGray))
-    };
-
-    let line = Line::from(vec![
-        Span::styled("envi", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("  "),
-        Span::styled(
-            // Show workspace name if we can
-            "",
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::raw("  "),
-        sync_span,
-    ]);
-
-    f.render_widget(Paragraph::new(line), area);
+    render_footer(f, app, main_chunks[1]);
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
@@ -93,6 +65,14 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(Color::Yellow),
             ),
         ]);
+        f.render_widget(Paragraph::new(line), area);
+        return;
+    }
+    if app.confirming_rotate {
+        let line = Line::from(vec![Span::styled(
+            "Rotate DEK? All secrets will be re-encrypted. [y] Yes  [n] No",
+            Style::default().fg(Color::Yellow),
+        )]);
         f.render_widget(Paragraph::new(line), area);
         return;
     }
@@ -119,12 +99,31 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                 "[n] New  [e] Edit  [d] Delete  [v] Show values  [Tab] Switch  [q] Quit"
             }
         }
-        Focus::Members => "[g] Grant access  [d] Remove  [i] Invite  [Tab] Switch  [q] Quit",
+        Focus::Members => "[g] Grant access  [d] Remove  [r] Rotate DEK  [i] Invite  [Tab] Switch  [q] Quit",
     };
+
+    let (sync_text, sync_color) = if app.syncing {
+        ("↑ syncing…", Color::Yellow)
+    } else {
+        ("✓ saved", Color::DarkGray)
+    };
+    // Reserve enough width for the longer of the two status strings.
+    let status_width = 10u16;
+
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(0), Constraint::Length(status_width)])
+        .split(area);
 
     f.render_widget(
         Paragraph::new(hint).style(Style::default().fg(Color::DarkGray)),
-        area,
+        chunks[0],
+    );
+    f.render_widget(
+        Paragraph::new(sync_text)
+            .style(Style::default().fg(sync_color))
+            .alignment(Alignment::Right),
+        chunks[1],
     );
 }
 
@@ -165,8 +164,9 @@ fn render_members(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    let scroll = scroll_indicators(app.member_idx, app.members.len(), area.height as usize, 2);
     let block = Block::default()
-        .title(" Members ")
+        .title(format!(" Members ({}) {}", app.members.len(), scroll))
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -205,8 +205,9 @@ fn render_projects(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    let scroll = scroll_indicators(app.proj_idx, app.projects.len(), area.height as usize, 2);
     let block = Block::default()
-        .title(" Projects ")
+        .title(format!(" Projects ({}) {}", app.projects.len(), scroll))
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -277,8 +278,10 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
         Constraint::Percentage(10),
     ];
 
+    // Secrets table has a header row, so subtract an extra row from the viewport.
+    let scroll = scroll_indicators(app.sec_idx, app.secrets.len(), area.height as usize, 3);
     let block = Block::default()
-        .title(" Secrets ")
+        .title(format!(" Secrets ({}) {}", app.secrets.len(), scroll))
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -504,4 +507,25 @@ fn render_invite(f: &mut Frame, app: &App) {
         .border_style(Style::default().fg(Color::Cyan));
 
     f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+}
+
+// --- Helpers ---
+
+/// Returns a scroll indicator string ("▲", "▼", "▲▼", or "") based on whether
+/// the list overflows the visible area and where the selection sits.
+///
+/// `overhead` = rows consumed by non-item chrome (borders, header rows, etc.)
+fn scroll_indicators(selected: usize, total: usize, area_height: usize, overhead: usize) -> &'static str {
+    let visible = area_height.saturating_sub(overhead);
+    if total <= visible {
+        return "";
+    }
+    let can_up = selected > 0;
+    let can_down = selected + 1 < total;
+    match (can_up, can_down) {
+        (true, true) => "▲▼",
+        (true, false) => "▲",
+        (false, true) => "▼",
+        (false, false) => "",
+    }
 }

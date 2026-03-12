@@ -1,11 +1,12 @@
 use automerge::AutoCommit;
-use autosurgeon::hydrate;
+use autosurgeon::{hydrate, reconcile};
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use crossterm::event::{KeyCode, KeyEvent};
 use envilib::{
     crypto::wrap_dek,
     error::Result,
+    members::{remove_member, rotate_dek},
     projects::{add_project, remove_project, set_project_secrets, update_project},
     secrets::{add_secret, list_secrets, remove_secret, update_secret, PlaintextSecretFields},
     store::{Session, Store},
@@ -106,6 +107,7 @@ pub struct App {
     // Confirmation dialogs
     pub member_to_delete: Option<String>,
     pub member_to_grant: Option<String>,
+    pub confirming_rotate: bool,
 
     // Invite clipboard status
     pub clipboard_ok: bool,
@@ -148,6 +150,7 @@ impl App {
             ps_selected_ids: std::collections::HashSet::new(),
             member_to_delete: None,
             member_to_grant: None,
+            confirming_rotate: false,
             persist_task: None,
         };
         app.refresh()?;
@@ -309,6 +312,11 @@ impl App {
             return self.handle_member_grant(key);
         }
 
+        // DEK rotation confirmation
+        if self.confirming_rotate {
+            return self.handle_dek_rotate(key);
+        }
+
         match &self.mode.clone() {
             Mode::Invite => {
                 if key.code == KeyCode::Esc {
@@ -459,6 +467,11 @@ impl App {
                     }
                 }
             }
+            KeyCode::Char('r') => {
+                if self.focus == Focus::Members {
+                    self.confirming_rotate = true;
+                }
+            }
             KeyCode::Char('i') => {
                 if self.focus == Focus::Members {
                     self.clipboard_ok = arboard::Clipboard::new()
@@ -577,10 +590,8 @@ impl App {
     fn handle_member_delete(&mut self, key: KeyEvent) -> Result<bool> {
         if let KeyCode::Char('y') = key.code {
             if let Some(id) = self.member_to_delete.take() {
-                use autosurgeon::reconcile;
-                let mut state: EnviDocument = hydrate(&self.doc)?;
-                state.members.remove(&id);
-                reconcile(&mut self.doc, &state)?;
+                let new_dek = remove_member(&mut self.doc, &self.session.dek, &id)?;
+                self.session.dek = new_dek;
                 if self.member_idx > 0 {
                     self.member_idx -= 1;
                 }
@@ -589,6 +600,19 @@ impl App {
             }
         } else if key.code == KeyCode::Char('n') || key.code == KeyCode::Esc {
             self.member_to_delete = None;
+        }
+        Ok(false)
+    }
+
+    fn handle_dek_rotate(&mut self, key: KeyEvent) -> Result<bool> {
+        if let KeyCode::Char('y') = key.code {
+            self.confirming_rotate = false;
+            let new_dek = rotate_dek(&mut self.doc, &self.session.dek)?;
+            self.session.dek = new_dek;
+            self.refresh()?;
+            self.schedule_persist();
+        } else if key.code == KeyCode::Char('n') || key.code == KeyCode::Esc {
+            self.confirming_rotate = false;
         }
         Ok(false)
     }
@@ -605,7 +629,6 @@ impl App {
                         .map_err(|_| envilib::error::Error::DecryptionFailed)?;
                     let wrapped = wrap_dek(&self.session.dek, &pub_key)?;
 
-                    use autosurgeon::reconcile;
                     let mut state: EnviDocument = hydrate(&self.doc)?;
                     if let Some(m) = state.members.get_mut(&id) {
                         m.wrapped_dek = wrapped;
