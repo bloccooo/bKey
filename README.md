@@ -51,14 +51,14 @@ envi
 | `Tab` | Switch pane                           |
 | `q`   | Quit                                  |
 
-### `envi run`
+### `envi exec`
 
 Inject secrets as environment variables into a command.
 
 ```sh
-envi run -- node server.js
-envi run --project myapp -- node server.js
-envi run --project myapp --dry-run
+envi exec -- node server.js
+envi exec --project myapp -- node server.js
+envi exec --project myapp --dry-run
 ```
 
 A `.envi` file in the project root can specify the default project:
@@ -110,7 +110,7 @@ The current implementation uses sound cryptographic primitives (AES-256-GCM, X25
 - **Signed invite links** — invite links will be signed by the issuing member's private key. Peers will verify the signature on join, ensuring the invite was issued by a legitimate workspace member and preventing forged or tampered links.
 - **Member identity verification** — new members self-register by writing their own public key into the shared document. A future version will require the inviting member to countersign the joining member's public key, preventing a malicious actor from substituting their own key during the join flow.
 - **Single-use, expiring invite links** — invite links currently have no expiry and can be reused indefinitely. They will include a short-lived nonce so that replayed or leaked links cannot be used to register new members.
-- **Scoped secret injection** — `envi run` will require secrets to be explicitly declared (e.g. in the `.envi` file) rather than injecting the full workspace vault, limiting the blast radius of prompt-injection attacks against AI agents.
+- **Scoped secret injection** — `envi exec` will require secrets to be explicitly declared (e.g. in the `.envi` file) rather than injecting the full workspace vault, limiting the blast radius of prompt-injection attacks against AI agents.
 
 ## Building from source
 

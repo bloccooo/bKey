@@ -22,7 +22,7 @@ enum Command {
     /// Open the TUI dashboard
     Ui,
     /// Inject secrets into a subprocess
-    Run {
+    Exec {
         /// Override project (default: from .envi file)
         #[arg(short, long)]
         project: Option<String>,
@@ -57,7 +57,7 @@ async fn main() {
     let result = match cli.command.unwrap_or(Command::Ui) {
         Command::Setup { invite } => commands::setup::run(invite).await,
         Command::Ui => commands::ui::run().await,
-        Command::Run { project, dry_run, cmd } => {
+        Command::Exec { project, dry_run, cmd } => {
             commands::run::run(project, dry_run, cmd).await
         }
         Command::Sync => commands::sync::run().await,
