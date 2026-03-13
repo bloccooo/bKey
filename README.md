@@ -15,7 +15,7 @@ Each member maintains their own Automerge document, signed with an Ed25519 key b
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/bloccooo/envisible/main/install.sh | bash
+curl -fsSL https://blocco.studio/envi/install.sh | bash
 ```
 
 Supports macOS (Apple Silicon & Intel) and Linux (x64). Installs to `/usr/local/bin/envi`.
