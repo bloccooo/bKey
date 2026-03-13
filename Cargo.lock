@@ -881,7 +881,7 @@ checksum = "34aa73646ffb006b8f5147f3dc182bd4bcb190227ce861fc4a4844bf8e3cb2c0"
 
 [[package]]
 name = "envi"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "arboard",
  "automerge",
@@ -1751,7 +1751,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "lib"
-version = "0.0.26"
+version = "0.0.27"
 dependencies = [
  "aes-gcm",
  "argon2",

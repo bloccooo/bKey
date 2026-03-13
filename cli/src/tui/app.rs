@@ -179,7 +179,24 @@ impl App {
     pub fn refresh(&mut self) -> Result<()> {
         let state: EnviDocument = hydrate(&self.doc)?;
         self.namespaces = state.namespaces.into_values().collect();
+        self.namespaces.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         self.secrets = list_secrets(&self.doc, &self.session.dek)?;
+        // Sort secrets by (first namespace name, secret name) so they group visually
+        let ns_index: Vec<(String, Vec<String>)> = self.namespaces
+            .iter()
+            .map(|n| (n.name.to_lowercase(), n.secret_ids.clone()))
+            .collect();
+        self.secrets.sort_by(|a, b| {
+            let ns_of = |id: &str| {
+                ns_index.iter()
+                    .find(|(_, ids)| ids.iter().any(|s| s == id))
+                    .map(|(name, _)| name.as_str())
+                    .unwrap_or("")
+            };
+            let ka = format!("{}\0{}", ns_of(&a.id), a.name.to_lowercase());
+            let kb = format!("{}\0{}", ns_of(&b.id), b.name.to_lowercase());
+            ka.cmp(&kb)
+        });
         self.members = state.members.into_values().collect();
 
         // Clamp indices
