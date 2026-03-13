@@ -54,6 +54,29 @@ fn render_list(f: &mut Frame, app: &App) {
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
+    if let Some(id) = &app.namespace_to_delete {
+        let name = app.namespaces.iter().find(|n| &n.id == id)
+            .map(|n| n.name.as_str())
+            .unwrap_or("namespace");
+        let line = Line::from(vec![Span::styled(
+            format!("Delete namespace '{name}'? [y] Yes  [n] No"),
+            Style::default().fg(Color::Yellow),
+        )]);
+        f.render_widget(Paragraph::new(line), area);
+        return;
+    }
+    if let Some(id) = &app.secret_to_delete {
+        let name = app.secrets.iter().find(|s| &s.id == id)
+            .map(|s| s.name.as_str())
+            .unwrap_or("secret");
+        let line = Line::from(vec![Span::styled(
+            format!("Delete secret '{name}'? [y] Yes  [n] No"),
+            Style::default().fg(Color::Yellow),
+        )]);
+        f.render_widget(Paragraph::new(line), area);
+        return;
+    }
+
     // Member confirmation dialogs take priority
     if let Some(id) = &app.member_to_delete {
         let email = app.members.iter().find(|m| &m.id == id)
@@ -94,15 +117,21 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         Focus::Namespaces => "[n] New  [e] Edit  [s] Secrets  [d] Delete  [Tab] Switch  [q] Quit",
         Focus::Secrets => {
             if app.show_values {
-                "[n] New  [e] Edit  [d] Delete  [v] Hide values  [Tab] Switch  [q] Quit"
+                "[n] New  [e] Edit  [d] Delete  [y] Copy value  [v] Hide values  [Tab] Switch  [q] Quit"
             } else {
-                "[n] New  [e] Edit  [d] Delete  [v] Show values  [Tab] Switch  [q] Quit"
+                "[n] New  [e] Edit  [d] Delete  [y] Copy value  [v] Show values  [Tab] Switch  [q] Quit"
             }
         }
         Focus::Members => "[g] Grant access  [d] Remove  [r] Rotate DEK  [i] Invite  [Tab] Switch  [q] Quit",
     };
 
-    let (sync_text, sync_color) = if app.syncing {
+    let copied_recently = app.copied_at
+        .map(|t| t.elapsed().as_secs() < 2)
+        .unwrap_or(false);
+
+    let (sync_text, sync_color) = if copied_recently {
+        ("✓ copied", Color::Green)
+    } else if app.syncing {
         ("↑ syncing…", Color::Yellow)
     } else {
         ("✓ saved", Color::DarkGray)
@@ -317,6 +346,18 @@ fn render_form(f: &mut Frame, app: &App) {
         NAMESPACE_FIELDS
     };
 
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+
+    if app.is_textarea_field() {
+        let inner = block.inner(area);
+        f.render_widget(block, area);
+        render_textarea_form(f, app, fields, inner);
+        return;
+    }
+
     let mut lines: Vec<Line> = vec![Line::from("")];
 
     for (i, field) in fields.iter().enumerate() {
@@ -389,12 +430,110 @@ fn render_form(f: &mut Frame, app: &App) {
         Style::default().fg(Color::DarkGray),
     )]));
 
-    let block = Block::default()
-        .title(title)
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
-
     f.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+fn render_textarea_form(f: &mut Frame, app: &App, fields: &[super::app::FormField], area: Rect) {
+    // Header: blank line + completed fields (2 lines each) + current field label
+    let header_height = (1 + app.field_idx * 2 + 1) as u16;
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(header_height),
+            Constraint::Length(6), // textarea: 4 visible lines + 2 borders
+            Constraint::Min(0),
+        ])
+        .split(area);
+
+    // Header
+    let mut header_lines: Vec<Line> = vec![Line::from("")];
+    for i in 0..app.field_idx {
+        let field = &fields[i];
+        let value = app.collected_values.get(i).cloned().unwrap_or_default();
+        let display = if field.secret { "••••••••".to_string() } else { value };
+        header_lines.push(Line::from(vec![
+            Span::styled(format!("  {} ", field.label), Style::default().fg(Color::DarkGray)),
+            Span::styled(display, Style::default().fg(Color::Green)),
+        ]));
+        header_lines.push(Line::from(""));
+    }
+    header_lines.push(Line::from(vec![Span::styled(
+        format!("▶ {} ", fields[app.field_idx].label),
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )]));
+    f.render_widget(Paragraph::new(header_lines), chunks[0]);
+
+    // Textarea
+    render_textarea_widget(f, app, chunks[1]);
+
+    // Footer
+    let mut footer_lines: Vec<Line> = vec![];
+    for i in (app.field_idx + 1)..fields.len() {
+        footer_lines.push(Line::from(vec![Span::styled(
+            format!("  {} ", fields[i].label),
+            Style::default().fg(Color::DarkGray),
+        )]));
+    }
+    footer_lines.push(Line::from(""));
+    footer_lines.push(Line::from(vec![Span::styled(
+        "  [Enter] Newline  [Tab] Next  [Esc] Cancel",
+        Style::default().fg(Color::DarkGray),
+    )]));
+    f.render_widget(Paragraph::new(footer_lines), chunks[2]);
+}
+
+fn render_textarea_widget(f: &mut Frame, app: &App, area: Rect) {
+    let scroll = app.ta_scroll;
+    // Subtract 2 for the block borders
+    let viewport = area.height.saturating_sub(2) as usize;
+
+    let can_up = scroll > 0;
+    let can_down = scroll + viewport < app.ta_lines.len();
+    let scroll_indicator = match (can_up, can_down) {
+        (true, true) => " ▲▼",
+        (true, false) => " ▲",
+        (false, true) => " ▼",
+        (false, false) => "",
+    };
+
+    let block = Block::default()
+        .title(format!(" Value{scroll_indicator} "))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::White));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let visible: Vec<Line> = (scroll..scroll + viewport)
+        .map(|row| {
+            if row >= app.ta_lines.len() {
+                return Line::from("");
+            }
+            let text = &app.ta_lines[row];
+
+            if row != app.ta_row {
+                return Line::from(text.clone());
+            }
+
+            // Cursor row: highlight the character under the cursor
+            let col = app.ta_col;
+            let before: String = text.chars().take(col).collect();
+            let at: String = text
+                .chars()
+                .nth(col)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| " ".to_string());
+            let after: String = text.chars().skip(col + 1).collect();
+
+            Line::from(vec![
+                Span::raw(before),
+                Span::styled(at, Style::default().bg(Color::White).fg(Color::Black)),
+                Span::raw(after),
+            ])
+        })
+        .collect();
+
+    f.render_widget(Paragraph::new(visible), inner);
 }
 
 // --- Namespace-secrets checklist view ---

@@ -3,7 +3,7 @@ mod render;
 
 use automerge::AutoCommit;
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -17,7 +17,7 @@ use app::App;
 pub async fn run(doc: AutoCommit, store: Store, session: Session, invite_link: String) -> Result<()> {
     enable_raw_mode().map_err(|e| lib::error::Error::Other(e.to_string()))?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
+    execute!(stdout, EnterAlternateScreen)
         .map_err(|e| lib::error::Error::Other(e.to_string()))?;
 
     let backend = CrosstermBackend::new(stdout);
@@ -27,12 +27,8 @@ pub async fn run(doc: AutoCommit, store: Store, session: Session, invite_link: S
     let result = run_app(&mut terminal, doc, store, session, invite_link).await;
 
     disable_raw_mode().map_err(|e| lib::error::Error::Other(e.to_string()))?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )
-    .map_err(|e| lib::error::Error::Other(e.to_string()))?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)
+        .map_err(|e| lib::error::Error::Other(e.to_string()))?;
     terminal.show_cursor()
         .map_err(|e| lib::error::Error::Other(e.to_string()))?;
 

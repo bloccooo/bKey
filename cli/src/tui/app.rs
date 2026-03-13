@@ -100,17 +100,27 @@ pub struct App {
     pub initial_values: Vec<String>,
     pub editing_id: Option<String>,
 
+    // Textarea state (multi-line Value field in secret forms)
+    pub ta_lines: Vec<String>,
+    pub ta_row: usize,
+    pub ta_col: usize,
+    pub ta_scroll: usize,
+
     // Project-secrets checklist
     pub ps_cursor: usize,
     pub ps_selected_ids: std::collections::HashSet<String>,
 
     // Confirmation dialogs
+    pub namespace_to_delete: Option<String>,
+    pub secret_to_delete: Option<String>,
     pub member_to_delete: Option<String>,
     pub member_to_grant: Option<String>,
     pub confirming_rotate: bool,
 
-    // Invite clipboard status
+    // Clipboard (kept alive so Linux clipboard manager can serve paste requests)
+    clipboard: Option<arboard::Clipboard>,
     pub clipboard_ok: bool,
+    pub copied_at: Option<std::time::Instant>,
 
     // Background persist task handle
     persist_task: Option<tokio::task::JoinHandle<()>>,
@@ -136,7 +146,9 @@ impl App {
             member_idx: 0,
             show_values: false,
             syncing: false,
+            clipboard: arboard::Clipboard::new().ok(),
             clipboard_ok: false,
+            copied_at: None,
             namespaces: vec![],
             secrets: vec![],
             members: vec![],
@@ -148,10 +160,16 @@ impl App {
             editing_id: None,
             ps_cursor: 0,
             ps_selected_ids: std::collections::HashSet::new(),
+            namespace_to_delete: None,
+            secret_to_delete: None,
             member_to_delete: None,
             member_to_grant: None,
             confirming_rotate: false,
             persist_task: None,
+            ta_lines: vec![String::new()],
+            ta_row: 0,
+            ta_col: 0,
+            ta_scroll: 0,
         };
         app.refresh()?;
         Ok(app)
@@ -193,7 +211,6 @@ impl App {
         self.syncing = true;
     }
 
-    /// Poll the persist task for completion.
     pub async fn tick(&mut self) {
         if let Some(handle) = &self.persist_task {
             if handle.is_finished() {
@@ -213,6 +230,10 @@ impl App {
         self.field_input = String::new();
         self.cursor = 0;
         self.collected_values = vec![];
+        self.ta_lines = vec![String::new()];
+        self.ta_row = 0;
+        self.ta_col = 0;
+        self.ta_scroll = 0;
     }
 
     fn open_edit_form(&mut self, mode: Mode, id: &str, values: Vec<String>) {
@@ -223,10 +244,53 @@ impl App {
         self.field_input = values.first().cloned().unwrap_or_default();
         self.cursor = self.field_input.len();
         self.collected_values = vec![];
+        // Pre-populate textarea from the value field (index 1)
+        let value_str = values.get(1).cloned().unwrap_or_default();
+        self.ta_lines = if value_str.is_empty() {
+            vec![String::new()]
+        } else {
+            value_str.split('\n').map(|s| s.to_string()).collect()
+        };
+        self.ta_row = 0;
+        self.ta_col = 0;
+        self.ta_scroll = 0;
+    }
+
+    /// True when the active form field should use the multi-line textarea.
+    pub fn is_textarea_field(&self) -> bool {
+        matches!(self.mode, Mode::NewSecret | Mode::EditSecret) && self.field_idx == 1
+    }
+
+    fn go_back_field(&mut self) {
+        if self.field_idx == 0 {
+            return;
+        }
+        let prev_idx = self.field_idx - 1;
+        let prev_value = self.collected_values.pop().unwrap_or_default();
+        self.field_idx = prev_idx;
+
+        let is_ta = matches!(self.mode, Mode::NewSecret | Mode::EditSecret) && prev_idx == 1;
+        if is_ta {
+            self.ta_lines = if prev_value.is_empty() {
+                vec![String::new()]
+            } else {
+                prev_value.split('\n').map(|s| s.to_string()).collect()
+            };
+            self.ta_row = self.ta_lines.len().saturating_sub(1);
+            self.ta_col = self.ta_lines[self.ta_row].chars().count();
+            self.ta_scroll = 0;
+        } else {
+            self.field_input = prev_value;
+            self.cursor = self.field_input.len();
+        }
     }
 
     fn advance_field(&mut self) {
-        let value = self.field_input.clone();
+        let value = if self.is_textarea_field() {
+            self.ta_lines.join("\n")
+        } else {
+            self.field_input.clone()
+        };
         let next_idx = self.field_idx + 1;
         let next_initial = self
             .initial_values
@@ -302,6 +366,14 @@ impl App {
 
     /// Returns true if the app should quit.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
+        // Namespace / secret delete confirmations
+        if self.namespace_to_delete.is_some() {
+            return self.handle_namespace_delete(key);
+        }
+        if self.secret_to_delete.is_some() {
+            return self.handle_secret_delete(key);
+        }
+
         // Member delete confirmation
         if self.member_to_delete.is_some() {
             return self.handle_member_delete(key);
@@ -430,24 +502,12 @@ impl App {
             KeyCode::Char('d') => match &self.focus {
                 Focus::Namespaces => {
                     if let Some(ns) = self.namespaces.get(self.ns_idx) {
-                        let id = ns.id.clone();
-                        remove_namespace(&mut self.doc, &id)?;
-                        if self.ns_idx > 0 {
-                            self.ns_idx -= 1;
-                        }
-                        self.refresh()?;
-                        self.schedule_persist();
+                        self.namespace_to_delete = Some(ns.id.clone());
                     }
                 }
                 Focus::Secrets => {
                     if let Some(sec) = self.secrets.get(self.sec_idx) {
-                        let id = sec.id.clone();
-                        remove_secret(&mut self.doc, &id)?;
-                        if self.sec_idx > 0 {
-                            self.sec_idx -= 1;
-                        }
-                        self.refresh()?;
-                        self.schedule_persist();
+                        self.secret_to_delete = Some(sec.id.clone());
                     }
                 }
                 Focus::Members => {
@@ -472,11 +532,27 @@ impl App {
                     self.confirming_rotate = true;
                 }
             }
+            KeyCode::Char('y') => {
+                if self.focus == Focus::Secrets {
+                    if let Some(sec) = self.secrets.get(self.sec_idx) {
+                        let value = sec.value.clone();
+                        self.clipboard_ok = self.clipboard
+                            .as_mut()
+                            .map(|cb| cb.set_text(value).is_ok())
+                            .unwrap_or(false);
+                        if self.clipboard_ok {
+                            self.copied_at = Some(std::time::Instant::now());
+                        }
+                    }
+                }
+            }
             KeyCode::Char('i') => {
                 if self.focus == Focus::Members {
-                    self.clipboard_ok = arboard::Clipboard::new()
-                        .and_then(|mut cb| cb.set_text(self.invite_link.clone()))
-                        .is_ok();
+                    let link = self.invite_link.clone();
+                    self.clipboard_ok = self.clipboard
+                        .as_mut()
+                        .map(|cb| cb.set_text(link).is_ok())
+                        .unwrap_or(false);
                     self.mode = Mode::Invite;
                 }
             }
@@ -487,6 +563,10 @@ impl App {
     }
 
     fn handle_form(&mut self, key: KeyEvent) -> Result<bool> {
+        if self.is_textarea_field() {
+            return self.handle_textarea(key);
+        }
+
         let fields = if self.mode == Mode::NewSecret || self.mode == Mode::EditSecret {
             SECRET_FIELDS
         } else {
@@ -497,10 +577,13 @@ impl App {
             KeyCode::Esc => {
                 self.mode = Mode::List;
             }
-            KeyCode::Enter => {
+            KeyCode::Up => {
+                self.go_back_field();
+            }
+            KeyCode::Down | KeyCode::Enter => {
                 if self.field_idx < fields.len() - 1 {
                     self.advance_field();
-                } else {
+                } else if key.code == KeyCode::Enter {
                     self.submit_form()?;
                 }
             }
@@ -548,6 +631,123 @@ impl App {
         Ok(false)
     }
 
+    fn handle_textarea(&mut self, key: KeyEvent) -> Result<bool> {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::List;
+            }
+            // Tab advances to the next field
+            KeyCode::Tab => {
+                self.advance_field();
+            }
+            // Enter inserts a newline
+            KeyCode::Enter => {
+                let row = self.ta_row;
+                let col = self.ta_col;
+                let chars: Vec<char> = self.ta_lines[row].chars().collect();
+                let before: String = chars[..col].iter().collect();
+                let after: String = chars[col..].iter().collect();
+                self.ta_lines[row] = before;
+                self.ta_lines.insert(row + 1, after);
+                self.ta_row += 1;
+                self.ta_col = 0;
+            }
+            KeyCode::Backspace => {
+                let row = self.ta_row;
+                let col = self.ta_col;
+                if col > 0 {
+                    let mut chars: Vec<char> = self.ta_lines[row].chars().collect();
+                    chars.remove(col - 1);
+                    self.ta_lines[row] = chars.into_iter().collect();
+                    self.ta_col -= 1;
+                } else if row > 0 {
+                    let current = self.ta_lines.remove(row);
+                    let prev_len = self.ta_lines[row - 1].chars().count();
+                    self.ta_lines[row - 1].push_str(&current);
+                    self.ta_row -= 1;
+                    self.ta_col = prev_len;
+                }
+            }
+            KeyCode::Delete => {
+                let row = self.ta_row;
+                let col = self.ta_col;
+                let line_len = self.ta_lines[row].chars().count();
+                if col < line_len {
+                    let mut chars: Vec<char> = self.ta_lines[row].chars().collect();
+                    chars.remove(col);
+                    self.ta_lines[row] = chars.into_iter().collect();
+                } else if row + 1 < self.ta_lines.len() {
+                    let next = self.ta_lines.remove(row + 1);
+                    self.ta_lines[row].push_str(&next);
+                }
+            }
+            KeyCode::Left => {
+                if self.ta_col > 0 {
+                    self.ta_col -= 1;
+                } else if self.ta_row > 0 {
+                    self.ta_row -= 1;
+                    self.ta_col = self.ta_lines[self.ta_row].chars().count();
+                }
+            }
+            KeyCode::Right => {
+                let line_len = self.ta_lines[self.ta_row].chars().count();
+                if self.ta_col < line_len {
+                    self.ta_col += 1;
+                } else if self.ta_row + 1 < self.ta_lines.len() {
+                    self.ta_row += 1;
+                    self.ta_col = 0;
+                }
+            }
+            KeyCode::Up => {
+                if self.ta_row > 0 {
+                    self.ta_row -= 1;
+                    let line_len = self.ta_lines[self.ta_row].chars().count();
+                    self.ta_col = self.ta_col.min(line_len);
+                } else {
+                    self.go_back_field();
+                }
+            }
+            KeyCode::Down => {
+                if self.ta_row + 1 < self.ta_lines.len() {
+                    self.ta_row += 1;
+                    let line_len = self.ta_lines[self.ta_row].chars().count();
+                    self.ta_col = self.ta_col.min(line_len);
+                } else {
+                    self.advance_field();
+                }
+            }
+            KeyCode::Home => {
+                self.ta_col = 0;
+            }
+            KeyCode::End => {
+                self.ta_col = self.ta_lines[self.ta_row].chars().count();
+            }
+            KeyCode::Char(c) => {
+                let row = self.ta_row;
+                let col = self.ta_col;
+                let mut chars: Vec<char> = self.ta_lines[row].chars().collect();
+                chars.insert(col, c);
+                self.ta_lines[row] = chars.into_iter().collect();
+                self.ta_col += 1;
+            }
+            _ => {}
+        }
+
+        self.update_ta_scroll();
+        Ok(false)
+    }
+
+    fn update_ta_scroll(&mut self) {
+        // Keep the cursor row inside the visible viewport.
+        // Textarea block is Constraint::Length(6) → 4 inner lines (6 - 2 borders).
+        const VIEWPORT: usize = 4;
+        if self.ta_row < self.ta_scroll {
+            self.ta_scroll = self.ta_row;
+        } else if self.ta_row >= self.ta_scroll + VIEWPORT {
+            self.ta_scroll = self.ta_row + 1 - VIEWPORT;
+        }
+    }
+
     fn handle_namespace_secrets(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             KeyCode::Esc => {
@@ -583,6 +783,38 @@ impl App {
                 }
             }
             _ => {}
+        }
+        Ok(false)
+    }
+
+    fn handle_namespace_delete(&mut self, key: KeyEvent) -> Result<bool> {
+        if key.code == KeyCode::Char('y') {
+            if let Some(id) = self.namespace_to_delete.take() {
+                remove_namespace(&mut self.doc, &id)?;
+                if self.ns_idx > 0 {
+                    self.ns_idx -= 1;
+                }
+                self.refresh()?;
+                self.schedule_persist();
+            }
+        } else if key.code == KeyCode::Char('n') || key.code == KeyCode::Esc {
+            self.namespace_to_delete = None;
+        }
+        Ok(false)
+    }
+
+    fn handle_secret_delete(&mut self, key: KeyEvent) -> Result<bool> {
+        if key.code == KeyCode::Char('y') {
+            if let Some(id) = self.secret_to_delete.take() {
+                remove_secret(&mut self.doc, &id)?;
+                if self.sec_idx > 0 {
+                    self.sec_idx -= 1;
+                }
+                self.refresh()?;
+                self.schedule_persist();
+            }
+        } else if key.code == KeyCode::Char('n') || key.code == KeyCode::Esc {
+            self.secret_to_delete = None;
         }
         Ok(false)
     }
