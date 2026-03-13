@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: write
+
 jobs:
   test:
     name: Test
@@ -34,3 +37,37 @@ jobs:
 
       - name: Build
         run: cargo build --workspace
+
+  release:
+    name: Tag release if version bumped
+    needs: [test, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Check for version bump
+        id: version
+        run: |
+          NEW=$(grep '^version' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          OLD=$(git show HEAD~1:Cargo.toml 2>/dev/null | grep '^version' | head -1 | sed 's/version = "\(.*\)"/\1/' || echo "")
+          echo "new=$NEW" >> "$GITHUB_OUTPUT"
+          echo "old=$OLD" >> "$GITHUB_OUTPUT"
+          if [ "$NEW" != "$OLD" ] && [ -n "$NEW" ]; then
+            echo "bumped=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "bumped=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.version.outputs.bumped == 'true'
+        run: |
+          VERSION="${{ steps.version.outputs.new }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "v${VERSION}"
+          git push origin "v${VERSION}"
