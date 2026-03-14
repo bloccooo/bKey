@@ -12,6 +12,7 @@ pub enum StorageConfig {
     S3(S3Config),
     R2(R2Config),
     Webdav(WebdavConfig),
+    Github(GithubConfig),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +43,15 @@ pub struct WebdavConfig {
     pub endpoint: String,
     pub username: String,
     pub password: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GithubConfig {
+    pub token: String,
+    pub owner: String,
+    pub repo: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
 }
 
 pub fn build_operator(config: &StorageConfig) -> Result<Operator> {
@@ -78,6 +88,16 @@ pub fn build_operator(config: &StorageConfig) -> Result<Operator> {
             }
             if !c.password.is_empty() {
                 builder = builder.password(&c.password);
+            }
+            Operator::new(builder).map_err(Error::Storage)?.finish()
+        }
+        StorageConfig::Github(c) => {
+            let mut builder = services::Github::default()
+                .token(&c.token)
+                .owner(&c.owner)
+                .repo(&c.repo);
+            if let Some(root) = &c.root {
+                builder = builder.root(root);
             }
             Operator::new(builder).map_err(Error::Storage)?.finish()
         }

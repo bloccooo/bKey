@@ -282,6 +282,7 @@ fn collect_storage_config() -> Result<StorageConfig> {
         "S3-compatible  (AWS, MinIO, B2…)",
         "Cloudflare R2",
         "WebDAV",
+        "GitHub",
     ];
     let choice = Select::new()
         .with_prompt(format!("  {}", style("Storage backend").bold()))
@@ -332,7 +333,7 @@ fn collect_storage_config() -> Result<StorageConfig> {
                 secret_access_key,
             }))
         }
-        _ => {
+        3 => {
             let endpoint = prompt("WebDAV endpoint URL")?;
             let username = prompt_optional("Username (blank if none)")?;
             let password = prompt_optional_password("Password (blank if none)")?;
@@ -340,6 +341,23 @@ fn collect_storage_config() -> Result<StorageConfig> {
                 endpoint,
                 username,
                 password,
+            }))
+        }
+        _ => {
+            let token = prompt_password("GitHub personal access token")?;
+            let owner = prompt("Repository owner (user or org)")?;
+            let repo = prompt("Repository name")?;
+            let root_str = prompt_optional("Root path in repo (blank for repo root)")?;
+            let root = if root_str.is_empty() {
+                None
+            } else {
+                Some(root_str)
+            };
+            Ok(StorageConfig::Github(lib::storage::GithubConfig {
+                token,
+                owner,
+                repo,
+                root,
             }))
         }
     }
