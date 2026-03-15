@@ -1,1 +1,3 @@
 /target
+*.envi.enc
+envi*
