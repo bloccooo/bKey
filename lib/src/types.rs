@@ -12,7 +12,6 @@ pub struct EnviDocument {
     pub name: String,
     pub doc_version: u64,
     pub members: HashMap<String, Member>,
-    pub namespaces: HashMap<String, Namespace>,
     pub secrets: HashMap<String, Secret>,
     /// Ed25519 signature over the canonical document bytes (excluding this field).
     /// Format: "member_id:base64(signature)". Empty on unsigned documents.
@@ -33,13 +32,6 @@ pub struct Member {
     /// Allows any DEK-holder to verify public keys haven't been tampered with.
     /// Empty string = pending (set by granter when wrapping the DEK).
     pub key_mac: String,
-}
-
-#[derive(Debug, Clone, Reconcile, Hydrate, Default)]
-pub struct Namespace {
-    pub id: String,
-    pub name: String,
-    pub secret_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Reconcile, Hydrate, Default)]

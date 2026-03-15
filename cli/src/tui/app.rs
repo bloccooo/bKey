@@ -7,10 +7,9 @@ use lib::{
     crypto::{compute_key_mac, wrap_dek},
     error::Result,
     members::{remove_member, rotate_dek},
-    namespaces::{add_namespace, remove_namespace, set_namespace_secrets, update_namespace},
     secrets::{add_secret, list_secrets, remove_secret, update_secret, PlaintextSecretFields},
     store::{Session, Store},
-    types::{EnviDocument, Member, Namespace, PlaintextSecret},
+    types::{EnviDocument, Member, PlaintextSecret},
 };
 use std::sync::Arc;
 
@@ -20,10 +19,9 @@ use std::sync::Arc;
 pub enum Mode {
     List,
     NewSecret,
-    NewNamespace,
     EditSecret,
-    EditNamespace,
-    NamespaceSecrets,
+    NewTag,
+    EditTag,
     Invite,
 }
 
@@ -31,8 +29,8 @@ pub enum Mode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Focus {
-    Namespaces,
     Secrets,
+    Tags,
     Members,
 }
 
@@ -43,6 +41,8 @@ pub struct FormField {
     pub label: &'static str,
     pub secret: bool,
 }
+
+pub const TAG_FIELDS: &[FormField] = &[FormField { label: "Name", secret: false }];
 
 pub const SECRET_FIELDS: &[FormField] = &[
     FormField {
@@ -63,11 +63,6 @@ pub const SECRET_FIELDS: &[FormField] = &[
     },
 ];
 
-pub const NAMESPACE_FIELDS: &[FormField] = &[FormField {
-    label: "Name",
-    secret: false,
-}];
-
 // --- App state ---
 
 pub struct App {
@@ -83,16 +78,16 @@ pub struct App {
     pub focus: Focus,
 
     // List indices
-    pub ns_idx: usize,
     pub sec_idx: usize,
+    pub tag_idx: usize,
     pub member_idx: usize,
 
     pub show_values: bool,
     pub syncing: bool,
 
     // Derived data (refreshed after every doc change)
-    pub namespaces: Vec<Namespace>,
     pub secrets: Vec<PlaintextSecret>,
+    pub tags: Vec<String>,
     pub members: Vec<Member>,
 
     // Form state
@@ -102,6 +97,10 @@ pub struct App {
     pub collected_values: Vec<String>,
     pub initial_values: Vec<String>,
     pub editing_id: Option<String>,
+    pub editing_tag: Option<String>,
+
+    // Tag-secrets assignment (active when editing_tag is Some)
+    pub ts_selected_ids: std::collections::HashSet<String>,
 
     // Textarea state (multi-line Value field in secret forms)
     pub ta_lines: Vec<String>,
@@ -109,13 +108,9 @@ pub struct App {
     pub ta_col: usize,
     pub ta_scroll: usize,
 
-    // Project-secrets checklist
-    pub ps_cursor: usize,
-    pub ps_selected_ids: std::collections::HashSet<String>,
-
     // Confirmation dialogs
-    pub namespace_to_delete: Option<String>,
     pub secret_to_delete: Option<String>,
+    pub tag_to_delete: Option<String>,
     pub member_to_delete: Option<String>,
     pub member_to_grant: Option<String>,
     pub confirming_rotate: bool,
@@ -150,16 +145,16 @@ impl App {
             storage_backend,
             mode: Mode::List,
             focus: Focus::Secrets,
-            ns_idx: 0,
             sec_idx: 0,
+            tag_idx: 0,
             member_idx: 0,
             show_values: false,
             syncing: false,
             clipboard: arboard::Clipboard::new().ok(),
             clipboard_ok: false,
             copied_at: None,
-            namespaces: vec![],
             secrets: vec![],
+            tags: vec![],
             members: vec![],
             field_idx: 0,
             field_input: String::new(),
@@ -167,10 +162,10 @@ impl App {
             collected_values: vec![],
             initial_values: vec![],
             editing_id: None,
-            ps_cursor: 0,
-            ps_selected_ids: std::collections::HashSet::new(),
-            namespace_to_delete: None,
+            editing_tag: None,
+            ts_selected_ids: std::collections::HashSet::new(),
             secret_to_delete: None,
+            tag_to_delete: None,
             member_to_delete: None,
             member_to_grant: None,
             confirming_rotate: false,
@@ -187,33 +182,25 @@ impl App {
     /// Refresh derived state from the automerge document.
     pub fn refresh(&mut self) -> Result<()> {
         let state: EnviDocument = hydrate(&self.doc)?;
-        self.namespaces = state.namespaces.into_values().collect();
-        self.namespaces.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         self.secrets = list_secrets(&self.doc, &self.session.dek)?;
-        // Sort secrets by (first namespace name, secret name) so they group visually
-        let ns_index: Vec<(String, Vec<String>)> = self.namespaces
-            .iter()
-            .map(|n| (n.name.to_lowercase(), n.secret_ids.clone()))
-            .collect();
-        self.secrets.sort_by(|a, b| {
-            let ns_of = |id: &str| {
-                ns_index.iter()
-                    .find(|(_, ids)| ids.iter().any(|s| s == id))
-                    .map(|(name, _)| name.as_str())
-                    .unwrap_or("")
-            };
-            let ka = format!("{}\0{}", ns_of(&a.id), a.name.to_lowercase());
-            let kb = format!("{}\0{}", ns_of(&b.id), b.name.to_lowercase());
-            ka.cmp(&kb)
-        });
+        self.secrets.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
         self.members = state.members.into_values().collect();
 
-        // Clamp indices
-        if !self.namespaces.is_empty() {
-            self.ns_idx = self.ns_idx.min(self.namespaces.len() - 1);
+        // Derive sorted unique tags from all secrets
+        let mut tag_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for s in &self.secrets {
+            for t in &s.tags {
+                tag_set.insert(t.clone());
+            }
         }
+        self.tags = tag_set.into_iter().collect();
+
+        // Clamp indices
         if !self.secrets.is_empty() {
             self.sec_idx = self.sec_idx.min(self.secrets.len() - 1);
+        }
+        if !self.tags.is_empty() {
+            self.tag_idx = self.tag_idx.min(self.tags.len() - 1);
         }
         if !self.members.is_empty() {
             self.member_idx = self.member_idx.min(self.members.len() - 1);
@@ -349,12 +336,6 @@ impl App {
                 self.refresh()?;
                 self.schedule_persist();
             }
-            Mode::NewNamespace => {
-                let [name, ..] = all_values_array(&all_values);
-                add_namespace(&mut self.doc, &name)?;
-                self.refresh()?;
-                self.schedule_persist();
-            }
             Mode::EditSecret => {
                 if let Some(id) = self.editing_id.clone() {
                     let [name, value, description, tags_str] = all_values_array(&all_values);
@@ -373,13 +354,42 @@ impl App {
                     self.schedule_persist();
                 }
             }
-            Mode::EditNamespace => {
-                if let Some(id) = self.editing_id.clone() {
-                    let [name, ..] = all_values_array(&all_values);
-                    update_namespace(&mut self.doc, &id, &name)?;
-                    self.refresh()?;
-                    self.schedule_persist();
+            Mode::NewTag => {
+                let tag_name = all_values[0].trim().to_string();
+                if !tag_name.is_empty() {
+                    self.ts_selected_ids = self.secrets.iter()
+                        .filter(|s| s.tags.contains(&tag_name))
+                        .map(|s| s.id.clone())
+                        .collect();
+                    self.editing_tag = Some(tag_name);
+                    self.focus = Focus::Secrets;
+                    self.mode = Mode::List;
+                    return Ok(());
                 }
+            }
+            Mode::EditTag => {
+                let new_name = all_values[0].trim().to_string();
+                if let Some(old_name) = self.editing_tag.clone() {
+                    if !new_name.is_empty() && new_name != old_name {
+                        for secret in self.secrets.clone() {
+                            if secret.tags.contains(&old_name) {
+                                let tags = secret.tags.iter()
+                                    .map(|t| if t == &old_name { new_name.clone() } else { t.clone() })
+                                    .collect();
+                                update_secret(&mut self.doc, &self.session.dek, &secret.id,
+                                    PlaintextSecretFields {
+                                        name: secret.name,
+                                        value: secret.value,
+                                        description: secret.description,
+                                        tags,
+                                    })?;
+                            }
+                        }
+                        self.refresh()?;
+                        self.schedule_persist();
+                    }
+                }
+                self.editing_tag = None;
             }
             _ => {}
         }
@@ -392,9 +402,8 @@ impl App {
 
     /// Returns true if the app should quit.
     pub async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
-        // Namespace / secret delete confirmations
-        if self.namespace_to_delete.is_some() {
-            return self.handle_namespace_delete(key);
+        if self.tag_to_delete.is_some() {
+            return self.handle_tag_delete(key);
         }
         if self.secret_to_delete.is_some() {
             return self.handle_secret_delete(key);
@@ -422,12 +431,40 @@ impl App {
                 }
                 return Ok(false);
             }
-            Mode::NamespaceSecrets => {
-                return self.handle_namespace_secrets(key);
-            }
             Mode::List => {}
             _ => {
                 return self.handle_form(key);
+            }
+        }
+
+        // --- Tag-assignment mode (inline in secrets pane) ---
+        if self.editing_tag.is_some() && self.focus == Focus::Secrets {
+            match key.code {
+                KeyCode::Char(' ') => {
+                    if let Some(secret) = self.secrets.get(self.sec_idx) {
+                        let id = secret.id.clone();
+                        if self.ts_selected_ids.contains(&id) {
+                            self.ts_selected_ids.remove(&id);
+                        } else {
+                            self.ts_selected_ids.insert(id);
+                        }
+                    }
+                    return Ok(false);
+                }
+                KeyCode::Enter => {
+                    self.save_tag_secrets()?;
+                    self.editing_tag = None;
+                    self.ts_selected_ids.clear();
+                    self.focus = Focus::Tags;
+                    return Ok(false);
+                }
+                KeyCode::Esc => {
+                    self.editing_tag = None;
+                    self.ts_selected_ids.clear();
+                    self.focus = Focus::Tags;
+                    return Ok(false);
+                }
+                _ => {} // Up/Down navigate normally
             }
         }
 
@@ -436,57 +473,28 @@ impl App {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Tab => {
                 self.focus = match &self.focus {
-                    Focus::Secrets => Focus::Namespaces,
-                    Focus::Namespaces => Focus::Members,
+                    Focus::Secrets => Focus::Tags,
+                    Focus::Tags => Focus::Members,
                     Focus::Members => Focus::Secrets,
                 };
             }
             KeyCode::Char('v') => {
                 self.show_values = !self.show_values;
             }
-            KeyCode::Char('n') => {
-                if self.focus != Focus::Members {
-                    let mode = if self.focus == Focus::Namespaces {
-                        Mode::NewNamespace
-                    } else {
-                        Mode::NewSecret
-                    };
-                    self.open_new_form(mode);
-                }
-            }
+            KeyCode::Char('n') => match &self.focus {
+                Focus::Secrets => self.open_new_form(Mode::NewSecret),
+                Focus::Tags => self.open_new_form(Mode::NewTag),
+                Focus::Members => {}
+            },
             KeyCode::Up => match &self.focus {
-                Focus::Namespaces => {
-                    if self.ns_idx > 0 {
-                        self.ns_idx -= 1;
-                    }
-                }
-                Focus::Secrets => {
-                    if self.sec_idx > 0 {
-                        self.sec_idx -= 1;
-                    }
-                }
-                Focus::Members => {
-                    if self.member_idx > 0 {
-                        self.member_idx -= 1;
-                    }
-                }
+                Focus::Secrets => { if self.sec_idx > 0 { self.sec_idx -= 1; } }
+                Focus::Tags => { if self.tag_idx > 0 { self.tag_idx -= 1; } }
+                Focus::Members => { if self.member_idx > 0 { self.member_idx -= 1; } }
             },
             KeyCode::Down => match &self.focus {
-                Focus::Namespaces => {
-                    if self.ns_idx + 1 < self.namespaces.len() {
-                        self.ns_idx += 1;
-                    }
-                }
-                Focus::Secrets => {
-                    if self.sec_idx + 1 < self.secrets.len() {
-                        self.sec_idx += 1;
-                    }
-                }
-                Focus::Members => {
-                    if self.member_idx + 1 < self.members.len() {
-                        self.member_idx += 1;
-                    }
-                }
+                Focus::Secrets => { if self.sec_idx + 1 < self.secrets.len() { self.sec_idx += 1; } }
+                Focus::Tags => { if self.tag_idx + 1 < self.tags.len() { self.tag_idx += 1; } }
+                Focus::Members => { if self.member_idx + 1 < self.members.len() { self.member_idx += 1; } }
             },
             KeyCode::Char('e') => match &self.focus {
                 Focus::Secrets => {
@@ -504,36 +512,35 @@ impl App {
                         );
                     }
                 }
-                Focus::Namespaces => {
-                    if let Some(ns) = self.namespaces.get(self.ns_idx) {
-                        let ns = ns.clone();
-                        self.open_edit_form(Mode::EditNamespace, &ns.id, vec![ns.name.clone()]);
+                Focus::Tags => {
+                    if let Some(tag) = self.tags.get(self.tag_idx).cloned() {
+                        self.editing_tag = Some(tag.clone());
+                        self.open_edit_form(Mode::EditTag, "", vec![tag]);
                     }
                 }
                 Focus::Members => {}
             },
             KeyCode::Char('s') => {
-                if self.focus == Focus::Namespaces {
-                    if let Some(ns) = self.namespaces.get(self.ns_idx) {
-                        let ns_id = ns.id.clone();
-                        let selected: std::collections::HashSet<String> =
-                            ns.secret_ids.iter().cloned().collect();
-                        self.ps_cursor = 0;
-                        self.ps_selected_ids = selected;
-                        self.editing_id = Some(ns_id);
-                        self.mode = Mode::NamespaceSecrets;
+                if self.focus == Focus::Tags {
+                    if let Some(tag) = self.tags.get(self.tag_idx).cloned() {
+                        self.ts_selected_ids = self.secrets.iter()
+                            .filter(|s| s.tags.contains(&tag))
+                            .map(|s| s.id.clone())
+                            .collect();
+                        self.editing_tag = Some(tag);
+                        self.focus = Focus::Secrets;
                     }
                 }
             }
             KeyCode::Char('d') => match &self.focus {
-                Focus::Namespaces => {
-                    if let Some(ns) = self.namespaces.get(self.ns_idx) {
-                        self.namespace_to_delete = Some(ns.id.clone());
-                    }
-                }
                 Focus::Secrets => {
                     if let Some(sec) = self.secrets.get(self.sec_idx) {
                         self.secret_to_delete = Some(sec.id.clone());
+                    }
+                }
+                Focus::Tags => {
+                    if let Some(tag) = self.tags.get(self.tag_idx).cloned() {
+                        self.tag_to_delete = Some(tag);
                     }
                 }
                 Focus::Members => {
@@ -593,10 +600,10 @@ impl App {
             return self.handle_textarea(key);
         }
 
-        let fields = if self.mode == Mode::NewSecret || self.mode == Mode::EditSecret {
-            SECRET_FIELDS
+        let fields = if matches!(self.mode, Mode::NewTag | Mode::EditTag) {
+            TAG_FIELDS
         } else {
-            NAMESPACE_FIELDS
+            SECRET_FIELDS
         };
 
         match key.code {
@@ -774,57 +781,51 @@ impl App {
         }
     }
 
-    fn handle_namespace_secrets(&mut self, key: KeyEvent) -> Result<bool> {
-        match key.code {
-            KeyCode::Esc => {
-                self.mode = Mode::List;
+    fn save_tag_secrets(&mut self) -> Result<()> {
+        if let Some(tag) = self.editing_tag.clone() {
+            for secret in self.secrets.clone() {
+                let has = self.ts_selected_ids.contains(&secret.id);
+                let had = secret.tags.contains(&tag);
+                if has == had { continue; }
+                let mut tags = secret.tags.clone();
+                if has { tags.push(tag.clone()); } else { tags.retain(|t| t != &tag); }
+                update_secret(&mut self.doc, &self.session.dek, &secret.id,
+                    PlaintextSecretFields {
+                        name: secret.name,
+                        value: secret.value,
+                        description: secret.description,
+                        tags,
+                    })?;
             }
-            KeyCode::Up => {
-                if self.ps_cursor > 0 {
-                    self.ps_cursor -= 1;
-                }
-            }
-            KeyCode::Down => {
-                if self.ps_cursor + 1 < self.secrets.len() {
-                    self.ps_cursor += 1;
-                }
-            }
-            KeyCode::Char(' ') => {
-                if let Some(secret) = self.secrets.get(self.ps_cursor) {
-                    let id = secret.id.clone();
-                    if self.ps_selected_ids.contains(&id) {
-                        self.ps_selected_ids.remove(&id);
-                    } else {
-                        self.ps_selected_ids.insert(id);
-                    }
-                }
-            }
-            KeyCode::Enter => {
-                if let Some(id) = self.editing_id.clone() {
-                    let ids: Vec<String> = self.ps_selected_ids.iter().cloned().collect();
-                    set_namespace_secrets(&mut self.doc, &id, ids)?;
-                    self.refresh()?;
-                    self.schedule_persist();
-                    self.mode = Mode::List;
-                }
-            }
-            _ => {}
+            self.refresh()?;
+            self.schedule_persist();
         }
-        Ok(false)
+        Ok(())
     }
 
-    fn handle_namespace_delete(&mut self, key: KeyEvent) -> Result<bool> {
+    fn handle_tag_delete(&mut self, key: KeyEvent) -> Result<bool> {
         if key.code == KeyCode::Char('y') {
-            if let Some(id) = self.namespace_to_delete.take() {
-                remove_namespace(&mut self.doc, &id)?;
-                if self.ns_idx > 0 {
-                    self.ns_idx -= 1;
+            if let Some(tag) = self.tag_to_delete.take() {
+                for secret in self.secrets.clone() {
+                    if secret.tags.contains(&tag) {
+                        let tags = secret.tags.iter().filter(|t| *t != &tag).cloned().collect();
+                        update_secret(&mut self.doc, &self.session.dek, &secret.id,
+                            PlaintextSecretFields {
+                                name: secret.name,
+                                value: secret.value,
+                                description: secret.description,
+                                tags,
+                            })?;
+                    }
+                }
+                if self.tag_idx > 0 {
+                    self.tag_idx -= 1;
                 }
                 self.refresh()?;
                 self.schedule_persist();
             }
         } else if key.code == KeyCode::Char('n') || key.code == KeyCode::Esc {
-            self.namespace_to_delete = None;
+            self.tag_to_delete = None;
         }
         Ok(false)
     }

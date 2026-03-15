@@ -1,4 +1,3 @@
-use autosurgeon::hydrate;
 use lib::{
     config::read_config,
     crypto::derive_private_key,
@@ -6,17 +5,16 @@ use lib::{
     error::{Error, Result},
     secrets::list_secrets,
     store::{unlock, Store},
-    types::EnviDocument,
 };
 
 use crate::passphrase::prompt_passphrase;
 
-pub async fn run(namespace_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -> Result<()> {
-    // Resolve namespace name: flag → .envi file → all secrets
-    let namespace_name = if namespace_arg.is_some() {
-        namespace_arg
+pub async fn run(tag_arg: Option<String>, dry_run: bool, cmd: Vec<String>) -> Result<()> {
+    // Resolve tag filter: flag → .envi file → all secrets
+    let tag_filter = if tag_arg.is_some() {
+        tag_arg
     } else {
-        read_envi_file(".").await?.namespace
+        read_envi_file(".").await?.tag
     };
 
     let config = read_config().await?.ok_or(Error::NoConfig)?;
@@ -28,7 +26,6 @@ pub async fn run(namespace_arg: Option<String>, dry_run: bool, cmd: Vec<String>)
     let workspace = if config.workspaces.len() == 1 {
         config.workspaces.into_iter().next().unwrap()
     } else {
-        // Multiple workspaces: prompt
         let names: Vec<_> = config.workspaces.iter().map(|w| w.name.as_str()).collect();
         let idx = dialoguer::Select::new()
             .with_prompt("Select workspace")
@@ -57,33 +54,22 @@ pub async fn run(namespace_arg: Option<String>, dry_run: bool, cmd: Vec<String>)
     }
 
     let all_secrets = list_secrets(&doc, &session.dek)?;
-    let state: EnviDocument = hydrate(&doc)?;
 
-    // Build env vars from namespace's secrets (or all secrets if no namespace)
-    let mut env_vars: Vec<(String, String)> = Vec::new();
-
-    if let Some(name) = &namespace_name {
-        let namespace = state
-            .namespaces
-            .values()
-            .find(|p| p.name == *name)
-            .ok_or_else(|| Error::NamespaceNotFound(name.clone()))?;
-
-        for id in &namespace.secret_ids {
-            if let Some(secret) = all_secrets.iter().find(|s| &s.id == id) {
-                env_vars.push((secret.name.clone(), secret.value.clone()));
-            }
-        }
-    } else {
-        for secret in &all_secrets {
-            env_vars.push((secret.name.clone(), secret.value.clone()));
-        }
-    }
+    let env_vars: Vec<(String, String)> = all_secrets
+        .into_iter()
+        .filter(|s| {
+            tag_filter
+                .as_ref()
+                .map(|tag| s.tags.iter().any(|t| t == tag))
+                .unwrap_or(true)
+        })
+        .map(|s| (s.name, s.value))
+        .collect();
 
     if dry_run {
-        let label = namespace_name
+        let label = tag_filter
             .as_deref()
-            .map(|n| format!("namespace \"{n}\""))
+            .map(|t| format!("tag \"{t}\""))
             .unwrap_or_else(|| "all secrets".to_string());
         println!("\nEnv vars that would be injected ({label}):\n");
         for (k, v) in &env_vars {

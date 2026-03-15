@@ -266,13 +266,6 @@ struct SigMember<'a> {
 }
 
 #[derive(Serialize)]
-struct SigNamespace<'a> {
-    id: &'a str,
-    name: &'a str,
-    secret_ids: Vec<&'a str>,
-}
-
-#[derive(Serialize)]
 struct SigSecret<'a> {
     description: &'a str,
     id: &'a str,
@@ -287,7 +280,6 @@ struct SigDocument<'a> {
     id: &'a str,
     members: BTreeMap<&'a str, SigMember<'a>>,
     name: &'a str,
-    namespaces: BTreeMap<&'a str, SigNamespace<'a>>,
     secrets: BTreeMap<&'a str, SigSecret<'a>>,
 }
 
@@ -315,25 +307,6 @@ pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
         })
         .collect();
 
-    let namespaces = state
-        .namespaces
-        .iter()
-        .map(|(id, p)| {
-            (
-                id.as_str(),
-                SigNamespace {
-                    id: &p.id,
-                    name: &p.name,
-                    secret_ids: {
-                        let mut ids: Vec<&str> = p.secret_ids.iter().map(String::as_str).collect();
-                        ids.sort_unstable();
-                        ids
-                    },
-                },
-            )
-        })
-        .collect();
-
     let secrets = state
         .secrets
         .iter()
@@ -356,7 +329,6 @@ pub fn canonical_document_bytes(state: &EnviDocument) -> Vec<u8> {
         id: &state.id,
         members,
         name: &state.name,
-        namespaces,
         secrets,
     };
 

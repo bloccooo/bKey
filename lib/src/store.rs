@@ -154,7 +154,6 @@ fn init_doc(workspace_id: &str) -> AutoCommit {
         name: String::new(),
         doc_version: 0,
         members: Default::default(),
-        namespaces: Default::default(),
         secrets: Default::default(),
         document_signature: String::new(),
     };

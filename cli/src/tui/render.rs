@@ -8,15 +8,12 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{App, Focus, Mode, NAMESPACE_FIELDS, SECRET_FIELDS};
+use super::app::{App, Focus, Mode, SECRET_FIELDS, TAG_FIELDS};
 
 pub fn render(f: &mut Frame, app: &App) {
     match &app.mode {
         Mode::Invite => render_invite(f, app),
-        Mode::NamespaceSecrets => render_namespace_secrets(f, app),
-        Mode::NewSecret | Mode::EditSecret | Mode::NewNamespace | Mode::EditNamespace => {
-            render_form(f, app)
-        }
+        Mode::NewSecret | Mode::EditSecret | Mode::NewTag | Mode::EditTag => render_form(f, app),
         Mode::List => render_list(f, app),
     }
 }
@@ -38,21 +35,20 @@ fn render_list(f: &mut Frame, app: &App) {
 
     render_header(f, app, main_chunks[0]);
 
-    // Body: secrets | namespaces on top, members on bottom
+    // Body: secrets on top, members on bottom
     let body_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(0), Constraint::Length(8)])
         .split(main_chunks[1]);
 
-    // Secrets (left) | Namespaces (right) split
+    // Secrets (left) | Tags (right)
     let pane_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
         .split(body_chunks[0]);
 
     render_secrets(f, app, pane_chunks[0]);
-    render_namespaces(f, app, pane_chunks[1]);
-
+    render_tags(f, app, pane_chunks[1]);
     render_members(f, app, body_chunks[1]);
 
     render_footer(f, app, main_chunks[2]);
@@ -82,15 +78,9 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
-    if let Some(id) = &app.namespace_to_delete {
-        let name = app
-            .namespaces
-            .iter()
-            .find(|n| &n.id == id)
-            .map(|n| n.name.as_str())
-            .unwrap_or("namespace");
+    if let Some(tag) = &app.tag_to_delete {
         let line = Line::from(vec![Span::styled(
-            format!("Delete namespace '{name}'? [y] Yes  [n] No"),
+            format!("Delete tag '{tag}'? [y] Yes  [n] No"),
             Style::default().fg(Color::Yellow),
         )]);
         f.render_widget(Paragraph::new(line), area);
@@ -150,17 +140,17 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let hint = match &app.focus {
-        Focus::Namespaces => "[n] New  [e] Edit  [s] Secrets  [d] Delete  [Tab] Switch  [q] Quit",
         Focus::Secrets => {
-            if app.show_values {
+            if app.editing_tag.is_some() {
+                "[Space] Toggle  [Enter] Save  [Esc] Cancel"
+            } else if app.show_values {
                 "[n] New  [e] Edit  [d] Delete  [y] Copy value  [v] Hide values  [Tab] Switch  [q] Quit"
             } else {
                 "[n] New  [e] Edit  [d] Delete  [y] Copy value  [v] Show values  [Tab] Switch  [q] Quit"
             }
         }
-        Focus::Members => {
-            "[g] Grant access  [d] Remove  [r] Rotate DEK  [i] Invite  [Tab] Switch  [q] Quit"
-        }
+        Focus::Tags => "[n] New  [e] Rename  [s] Secrets  [d] Delete  [Tab] Switch  [q] Quit",
+        Focus::Members => "[g] Grant access  [d] Remove  [r] Rotate DEK  [i] Invite  [Tab] Switch  [q] Quit",
     };
 
     let copied_recently = app
@@ -246,8 +236,8 @@ fn render_members(f: &mut Frame, app: &App, area: Rect) {
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
 }
 
-fn render_namespaces(f: &mut Frame, app: &App, area: Rect) {
-    let focused = app.focus == Focus::Namespaces;
+fn render_tags(f: &mut Frame, app: &App, area: Rect) {
+    let focused = app.focus == Focus::Tags;
     let border_style = if focused {
         Style::default().fg(Color::Cyan)
     } else {
@@ -255,33 +245,31 @@ fn render_namespaces(f: &mut Frame, app: &App, area: Rect) {
     };
 
     let items: Vec<ListItem> = app
-        .namespaces
+        .tags
         .iter()
         .enumerate()
-        .map(|(i, p)| {
-            let is_selected = i == app.ns_idx && focused;
-            let secret_count = p.secret_ids.len();
-            let label = format!("{} ({})", p.name, secret_count);
-
+        .map(|(i, tag)| {
+            let is_selected = i == app.tag_idx && focused;
+            let count = app.secrets.iter().filter(|s| s.tags.contains(tag)).count();
+            let label = format!("{tag} ({count})");
             let style = if is_selected {
                 Style::default().bg(Color::Cyan).fg(Color::Black)
             } else {
                 Style::default()
             };
-
             ListItem::new(label).style(style)
         })
         .collect();
 
-    let scroll = scroll_indicators(app.ns_idx, app.namespaces.len(), area.height as usize, 2);
+    let scroll = scroll_indicators(app.tag_idx, app.tags.len(), area.height as usize, 2);
     let block = Block::default()
-        .title(format!(" Namespaces ({}) {}", app.namespaces.len(), scroll))
+        .title(format!(" Tags ({}) {}", app.tags.len(), scroll))
         .borders(Borders::ALL)
         .border_style(border_style);
 
     let mut state = ListState::default();
-    if focused && !app.namespaces.is_empty() {
-        state.select(Some(app.ns_idx));
+    if focused && !app.tags.is_empty() {
+        state.select(Some(app.tag_idx));
     }
 
     f.render_stateful_widget(List::new(items).block(block), area, &mut state);
@@ -295,10 +283,12 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
         Style::default().fg(Color::DarkGray)
     };
 
-    let header_cells = ["Name", "Value", "Tags", "Namespaces"]
+    let header_cells = ["Name", "Value", "Tags"]
         .iter()
         .map(|h| Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD)));
     let header = Row::new(header_cells).height(1).bottom_margin(0);
+
+    let assigning = app.editing_tag.is_some();
 
     let rows: Vec<Row> = app
         .secrets
@@ -315,13 +305,13 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
 
             let tags = s.tags.join(", ");
 
-            // Count how many namespaces contain this secret
-            let ns_count = app
-                .namespaces
-                .iter()
-                .filter(|p| p.secret_ids.contains(&s.id))
-                .count();
-            let proj_display = ns_count.to_string();
+            let name_cell = if assigning {
+                let checked = app.ts_selected_ids.contains(&s.id);
+                let checkbox = if checked { "[x] " } else { "[ ] " };
+                Cell::from(format!("{checkbox}{}", s.name))
+            } else {
+                Cell::from(s.name.clone())
+            };
 
             let style = if is_selected {
                 Style::default().bg(Color::Cyan).fg(Color::Black)
@@ -329,27 +319,26 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
                 Style::default()
             };
 
-            Row::new(vec![
-                Cell::from(s.name.clone()),
-                Cell::from(value_display),
-                Cell::from(tags),
-                Cell::from(proj_display),
-            ])
-            .style(style)
+            Row::new(vec![name_cell, Cell::from(value_display), Cell::from(tags)])
+                .style(style)
         })
         .collect();
 
     let widths = [
         Constraint::Percentage(30),
-        Constraint::Percentage(35),
-        Constraint::Percentage(25),
-        Constraint::Percentage(10),
+        Constraint::Percentage(40),
+        Constraint::Percentage(30),
     ];
 
     // Secrets table has a header row, so subtract an extra row from the viewport.
     let scroll = scroll_indicators(app.sec_idx, app.secrets.len(), area.height as usize, 3);
+    let title = if let Some(tag) = &app.editing_tag {
+        format!(" Secrets — assigning '{}' {} ", tag, scroll)
+    } else {
+        format!(" Secrets ({}) {} ", app.secrets.len(), scroll)
+    };
     let block = Block::default()
-        .title(format!(" Secrets ({}) {}", app.secrets.len(), scroll))
+        .title(title)
         .borders(Borders::ALL)
         .border_style(border_style);
 
@@ -374,15 +363,15 @@ fn render_form(f: &mut Frame, app: &App) {
     let title = match &app.mode {
         Mode::NewSecret => " New Secret ",
         Mode::EditSecret => " Edit Secret ",
-        Mode::NewNamespace => " New Namespace ",
-        Mode::EditNamespace => " Edit Namespace ",
+        Mode::NewTag => " New Tag ",
+        Mode::EditTag => " Edit Tag ",
         _ => " Form ",
     };
 
-    let fields = if app.mode == Mode::NewSecret || app.mode == Mode::EditSecret {
-        SECRET_FIELDS
+    let fields = if matches!(app.mode, Mode::NewTag | Mode::EditTag) {
+        TAG_FIELDS
     } else {
-        NAMESPACE_FIELDS
+        SECRET_FIELDS
     };
 
     let block = Block::default()
@@ -588,61 +577,6 @@ fn render_textarea_widget(f: &mut Frame, app: &App, area: Rect) {
         .collect();
 
     f.render_widget(Paragraph::new(visible), inner);
-}
-
-// --- Namespace-secrets checklist view ---
-
-fn render_namespace_secrets(f: &mut Frame, app: &App) {
-    let area = f.area();
-
-    let ns_name = app
-        .editing_id
-        .as_ref()
-        .and_then(|id| app.namespaces.iter().find(|p| &p.id == id))
-        .map(|p| p.name.as_str())
-        .unwrap_or("namespace");
-
-    let items: Vec<ListItem> = app
-        .secrets
-        .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            let checked = app.ps_selected_ids.contains(&s.id);
-            let is_cursor = i == app.ps_cursor;
-            let checkbox = if checked { "[x]" } else { "[ ]" };
-            let label = format!("{checkbox} {}", s.name);
-
-            let style = if is_cursor {
-                Style::default().bg(Color::Cyan).fg(Color::Black)
-            } else if checked {
-                Style::default().fg(Color::Green)
-            } else {
-                Style::default()
-            };
-
-            ListItem::new(label).style(style)
-        })
-        .collect();
-
-    let block = Block::default()
-        .title(format!(" Secrets for namespace '{ns_name}' "))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
-
-    let mut state = ListState::default();
-    state.select(Some(app.ps_cursor));
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
-        .split(area);
-
-    f.render_stateful_widget(List::new(items).block(block), chunks[0], &mut state);
-    f.render_widget(
-        Paragraph::new("[Space] Toggle  [Enter] Save  [Esc] Cancel")
-            .style(Style::default().fg(Color::DarkGray)),
-        chunks[1],
-    );
 }
 
 // --- Invite view ---

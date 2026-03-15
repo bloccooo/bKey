@@ -64,10 +64,6 @@ pub fn add_secret(
 pub fn remove_secret(doc: &mut AutoCommit, id: &str) -> Result<()> {
     let mut state: EnviDocument = hydrate(doc)?;
     state.secrets.remove(id);
-    // Remove from all namespaces too
-    for namespace in state.namespaces.values_mut() {
-        namespace.secret_ids.retain(|sid| sid != id);
-    }
     reconcile(doc, &state)?;
     Ok(())
 }
