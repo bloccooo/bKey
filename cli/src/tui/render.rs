@@ -448,6 +448,40 @@ fn render_form(f: &mut Frame, app: &App) {
                 ),
                 Span::raw(after_cursor),
             ]));
+
+            // Tag autocomplete dropdown
+            if matches!(app.mode, Mode::NewSecret | Mode::EditSecret)
+                && i == 3
+                && !app.tag_ac_matches.is_empty()
+            {
+                const MAX_VISIBLE: usize = 5;
+                for (j, tag) in app.tag_ac_matches.iter().take(MAX_VISIBLE).enumerate() {
+                    let selected = app.tag_ac_idx == Some(j);
+                    if selected {
+                        lines.push(Line::from(vec![
+                            Span::raw("  "),
+                            Span::styled(
+                                format!("▶ {tag}"),
+                                Style::default().bg(Color::Cyan).fg(Color::Black),
+                            ),
+                        ]));
+                    } else {
+                        lines.push(Line::from(vec![
+                            Span::raw("  "),
+                            Span::styled(
+                                format!("  {tag}"),
+                                Style::default().fg(Color::DarkGray),
+                            ),
+                        ]));
+                    }
+                }
+                if app.tag_ac_matches.len() > MAX_VISIBLE {
+                    lines.push(Line::from(Span::styled(
+                        format!("  … {} more", app.tag_ac_matches.len() - MAX_VISIBLE),
+                        Style::default().fg(Color::DarkGray),
+                    )));
+                }
+            }
         } else {
             // Future field (dimmed)
             lines.push(Line::from(vec![Span::styled(

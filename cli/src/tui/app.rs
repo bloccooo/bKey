@@ -102,6 +102,10 @@ pub struct App {
     // Tag-secrets assignment (active when editing_tag is Some)
     pub ts_selected_ids: std::collections::HashSet<String>,
 
+    // Tag autocomplete state (active on the Tags field in secret forms)
+    pub tag_ac_matches: Vec<String>,
+    pub tag_ac_idx: Option<usize>,
+
     // Textarea state (multi-line Value field in secret forms)
     pub ta_lines: Vec<String>,
     pub ta_row: usize,
@@ -164,6 +168,8 @@ impl App {
             editing_id: None,
             editing_tag: None,
             ts_selected_ids: std::collections::HashSet::new(),
+            tag_ac_matches: vec![],
+            tag_ac_idx: None,
             secret_to_delete: None,
             tag_to_delete: None,
             member_to_delete: None,
@@ -606,6 +612,37 @@ impl App {
             SECRET_FIELDS
         };
 
+        // --- Tag autocomplete intercept (tags field only) ---
+        let on_tags_field = matches!(self.mode, Mode::NewSecret | Mode::EditSecret)
+            && self.field_idx == 3;
+        if on_tags_field {
+            match key.code {
+                KeyCode::Down if !self.tag_ac_matches.is_empty() => {
+                    self.tag_ac_idx = Some(
+                        self.tag_ac_idx
+                            .map_or(0, |i| (i + 1).min(self.tag_ac_matches.len() - 1)),
+                    );
+                    return Ok(false);
+                }
+                KeyCode::Up if self.tag_ac_idx.is_some() => {
+                    self.tag_ac_idx = self.tag_ac_idx
+                        .and_then(|i| if i == 0 { None } else { Some(i - 1) });
+                    return Ok(false);
+                }
+                KeyCode::Enter if self.tag_ac_idx.is_some() => {
+                    let selected = self.tag_ac_matches[self.tag_ac_idx.unwrap()].clone();
+                    self.insert_ac_tag(&selected);
+                    self.tag_ac_idx = None;
+                    self.update_tag_ac();
+                    return Ok(false);
+                }
+                _ => {
+                    // Any other key clears selection but continues to normal handling
+                    self.tag_ac_idx = None;
+                }
+            }
+        }
+
         match key.code {
             KeyCode::Esc => {
                 self.mode = Mode::List;
@@ -661,6 +698,7 @@ impl App {
             _ => {}
         }
 
+        self.update_tag_ac();
         Ok(false)
     }
 
@@ -672,6 +710,7 @@ impl App {
             // Tab advances to the next field
             KeyCode::Tab => {
                 self.advance_field();
+                self.update_tag_ac();
             }
             // Enter inserts a newline
             KeyCode::Enter => {
@@ -779,6 +818,63 @@ impl App {
         } else if self.ta_row >= self.ta_scroll + VIEWPORT {
             self.ta_scroll = self.ta_row + 1 - VIEWPORT;
         }
+    }
+
+    /// Recompute tag autocomplete matches based on the current tags field input.
+    pub fn update_tag_ac(&mut self) {
+        let is_tags_field = matches!(self.mode, Mode::NewSecret | Mode::EditSecret)
+            && self.field_idx == 3;
+        if !is_tags_field {
+            self.tag_ac_matches.clear();
+            self.tag_ac_idx = None;
+            return;
+        }
+        // The current token is everything after the last comma
+        let current_token = self.field_input
+            .split(',')
+            .last()
+            .map(|s| s.trim().to_lowercase())
+            .unwrap_or_default();
+
+        // Tags already fully entered (all tokens except the last)
+        let entered: std::collections::HashSet<String> = self.field_input
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        self.tag_ac_matches = self.tags.iter()
+            .filter(|t| {
+                let tl = t.to_lowercase();
+                // exclude exact matches already entered; show prefix matches or all if token empty
+                !entered.contains(&tl)
+                    && (current_token.is_empty() || tl.starts_with(&current_token))
+            })
+            .cloned()
+            .collect();
+
+        // Clamp selection
+        if self.tag_ac_matches.is_empty() {
+            self.tag_ac_idx = None;
+        } else if let Some(idx) = self.tag_ac_idx {
+            self.tag_ac_idx = Some(idx.min(self.tag_ac_matches.len() - 1));
+        }
+    }
+
+    /// Replace the current (last) token in the tags field with `selected`, appending ", ".
+    fn insert_ac_tag(&mut self, selected: &str) {
+        let new_input = if let Some(comma_pos) = self.field_input.rfind(',') {
+            let prefix = self.field_input[..comma_pos].trim_end();
+            if prefix.is_empty() {
+                format!("{selected}, ")
+            } else {
+                format!("{prefix}, {selected}, ")
+            }
+        } else {
+            format!("{selected}, ")
+        };
+        self.field_input = new_input;
+        self.cursor = self.field_input.chars().count();
     }
 
     fn save_tag_secrets(&mut self) -> Result<()> {
