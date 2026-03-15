@@ -16,7 +16,7 @@ struct Cli {
 enum Command {
     /// Set up a new vault or join an existing one
     Setup {
-        /// Accept an invite link directly
+        /// Accept an invite token directly
         invite: Option<String>,
     },
     /// Open the TUI dashboard
@@ -38,7 +38,7 @@ enum Command {
     /// Clear cached credentials and stop the key agent
     Logout,
     /// Remove all local data (cache, config, agent)
-    Clear,
+    Wipe,
     #[command(hide = true)]
     Agent {
         /// Start the agent server (internal, do not use directly)
@@ -62,7 +62,7 @@ async fn main() {
         }
         Command::Sync => commands::sync::run().await,
         Command::Logout => agent::run(false, true).await,
-        Command::Clear => commands::clear::run().await,
+        Command::Wipe => commands::clear::run().await,
         Command::Agent { serve, kill } => agent::run(serve, kill).await,
     };
 

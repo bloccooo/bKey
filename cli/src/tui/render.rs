@@ -69,7 +69,7 @@ fn render_header(f: &mut Frame, app: &App, area: Rect) {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         )),
-        Line::from(Span::raw(app.account_name.clone())),
+        Line::from(Span::raw(app.device_name.clone())),
         Line::from(Span::raw(format!(
             "{} · {}",
             app.vault_name.clone(),
@@ -149,14 +149,23 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         Focus::Secrets => {
             if app.editing_tag.is_some() {
                 "[Space] Toggle  [Enter] Save  [Esc] Cancel"
-            } else if app.show_values {
-                "[n] New  [e] Edit  [d] Delete  [c] Copy value  [v] Hide values  [Tab] Switch  [q] Quit"
             } else {
-                "[n] New  [e] Edit  [d] Delete  [c] Copy value  [v] Show values  [Tab] Switch  [q] Quit"
+                "[n] New  [e] Edit  [d] Delete  [c] Copy value  [v] Hold to reveal  [Tab] Switch  [q] Quit"
             }
         }
         Focus::Tags => "[n] New  [e] Rename  [s] Secrets  [d] Delete  [Tab] Switch  [q] Quit",
-        Focus::Members => "[g] Grant access  [d] Remove  [r] Rotate DEK  [i] Invite  [Tab] Switch  [q] Quit",
+        Focus::Members => {
+            let selected_is_pending = app
+                .members
+                .get(app.member_idx)
+                .map(|m| m.wrapped_dek.is_empty())
+                .unwrap_or(false);
+            if selected_is_pending {
+                "[g] Grant access  [d] Remove selected  [i] Invite new member  [Tab] Switch  [q] Quit"
+            } else {
+                "[d] Remove selected  [i] Invite new member  [Tab] Switch  [q] Quit"
+            }
+        }
     };
 
     let copied_recently = app
@@ -296,6 +305,11 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
 
     let assigning = app.editing_tag.is_some();
 
+    // Inner width = pane minus left+right border (2) and column spacing (2 gaps of 1).
+    // Value column gets 40% of what remains. Subtract 2 more to account for ratatui's
+    // integer rounding — we'd rather truncate slightly early than let ratatui clip silently.
+    let value_col_width = (area.width.saturating_sub(4) as usize) * 40 / 100 - 2;
+
     let rows: Vec<Row> = app
         .secrets
         .iter()
@@ -304,7 +318,12 @@ fn render_secrets(f: &mut Frame, app: &App, area: Rect) {
             let is_selected = i == app.sec_idx && focused;
 
             let value_display = if app.show_values {
-                s.value.clone()
+                if s.value.chars().count() > value_col_width {
+                    let truncated: String = s.value.chars().take(value_col_width).collect();
+                    format!("{truncated}…")
+                } else {
+                    s.value.clone()
+                }
             } else {
                 "••••••••".to_string()
             };
@@ -638,7 +657,7 @@ fn render_invite(f: &mut Frame, app: &App) {
     let lines = vec![
         Line::from(""),
         Line::from(vec![Span::styled(
-            "Invite Link",
+            "Invite Token",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -653,12 +672,12 @@ fn render_invite(f: &mut Frame, app: &App) {
             Style::default().fg(Color::DarkGray),
         )]),
         Line::from(""),
-        Line::from(app.invite_link.clone()),
+        Line::from(app.invite_token.clone()),
         Line::from(""),
         Line::from(vec![
             Span::styled("They should run:  ", Style::default().fg(Color::DarkGray)),
             Span::styled(
-                format!("envi setup {}", app.invite_link),
+                format!("envi setup {}", app.invite_token),
                 Style::default().fg(Color::White),
             ),
         ]),

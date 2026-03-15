@@ -20,10 +20,10 @@ pub enum Error {
     #[error("key MAC verification failed for member {0}")]
     InvalidKeyMac(String),
 
-    #[error("invalid invite link")]
+    #[error("invalid invite token")]
     InvalidInviteLink,
 
-    #[error("invite link expired")]
+    #[error("invite token expired")]
     InviteLinkExpired,
 
     #[error("automerge error: {0}")]

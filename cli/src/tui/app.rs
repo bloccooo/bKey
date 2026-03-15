@@ -69,8 +69,8 @@ pub struct App {
     pub doc: AutoCommit,
     pub store: Arc<Store>,
     pub session: Session,
-    pub invite_link: String,
-    pub account_name: String,
+    pub invite_token: String,
+    pub device_name: String,
     pub vault_name: String,
     pub storage_backend: String,
 
@@ -133,8 +133,8 @@ impl App {
         doc: AutoCommit,
         store: Store,
         session: Session,
-        invite_link: String,
-        account_name: String,
+        invite_token: String,
+        device_name: String,
         vault_name: String,
         storage_backend: String,
     ) -> Result<Self> {
@@ -143,8 +143,8 @@ impl App {
             doc,
             store,
             session,
-            invite_link,
-            account_name,
+            invite_token,
+            device_name,
             vault_name,
             storage_backend,
             mode: Mode::List,
@@ -484,9 +484,7 @@ impl App {
                     Focus::Members => Focus::Secrets,
                 };
             }
-            KeyCode::Char('v') => {
-                self.show_values = !self.show_values;
-            }
+
             KeyCode::Char('n') => match &self.focus {
                 Focus::Secrets => self.open_new_form(Mode::NewSecret),
                 Focus::Tags => self.open_new_form(Mode::NewTag),
@@ -587,7 +585,7 @@ impl App {
             }
             KeyCode::Char('i') => {
                 if self.focus == Focus::Members {
-                    let link = self.invite_link.clone();
+                    let link = self.invite_token.clone();
                     self.clipboard_ok = self.clipboard
                         .as_mut()
                         .map(|cb| cb.set_text(link).is_ok())

@@ -46,7 +46,7 @@ pub async fn run() -> Result<()> {
         agent.store_key(&vault.id, &private_key);
     }
 
-    let invite_link = generate_invite(
+    let invite_token = generate_invite(
         &vault.storage,
         VaultPayload {
             id: vault.id.clone(),
@@ -62,5 +62,5 @@ pub async fn run() -> Result<()> {
         StorageConfig::Github(_) => "GitHub",
     }.to_string();
 
-    crate::tui::run(doc, store, session, invite_link, config.member_name, vault.name, storage_backend).await
+    crate::tui::run(doc, store, session, invite_token, config.member_name, vault.name, storage_backend).await
 }

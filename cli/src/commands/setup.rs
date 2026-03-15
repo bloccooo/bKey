@@ -35,7 +35,7 @@ fn done(pb: ProgressBar, msg: &str) {
     pb.finish_with_message(format!("{} {}", style("✓").green().bold(), msg));
 }
 
-pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
+pub async fn run(invite_token_arg: Option<String>) -> Result<()> {
     let term = Term::stdout();
     let _ = term.clear_screen();
 
@@ -62,12 +62,12 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
         println!(
             "  {} {}",
             style("→").cyan(),
-            style("Choose an account name.").bold()
+            style("Choose a device name.").bold()
         );
         println!("  {}", style("A label to identify this device.").dim());
         println!();
         let member_name: String = Input::new()
-            .with_prompt(format!("  {}", style("Account name").bold()))
+            .with_prompt(format!("  {}", style("Device name").bold()))
             .interact_text()
             .map_err(|e| lib::error::Error::Other(e.to_string()))?;
 
@@ -91,12 +91,22 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
     );
     println!("  {}", style("This never leaves your device.").dim());
     println!();
+    println!(
+        "  {} {}",
+        style("⚠").yellow(),
+        style("Losing your passphrase may result in permanently losing access to your vault content.").yellow()
+    );
+    println!(
+        "  {}",
+        style("Memorise it or store it in a secure password manager. Never save it unencrypted on any device.").dim()
+    );
+    println!();
 
     let passphrase = crate::passphrase::prompt_new_passphrase()?;
     println!();
 
     // Choose: create new vault or join via invite
-    let action = if invite_link_arg.is_some() {
+    let action = if invite_token_arg.is_some() {
         1 // import
     } else {
         println!(
@@ -109,7 +119,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
             .with_prompt(format!("  {}", style("Action").bold()))
             .items(&[
                 "Create a new vault",
-                "Join an existing vault (invite link)",
+                "Join an existing vault (invite token)",
             ])
             .default(0)
             .interact()
@@ -120,13 +130,13 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
 
     if action == 1 {
         // Join via invite link
-        let invite_link = if let Some(link) = invite_link_arg {
+        let invite_token = if let Some(link) = invite_token_arg {
             link
         } else {
             println!(
                 "  {} {}",
                 style("→").cyan(),
-                style("Paste your invite link below.").bold()
+                style("Paste your invite token below.").bold()
             );
             println!();
             Input::new()
@@ -135,7 +145,7 @@ pub async fn run(invite_link_arg: Option<String>) -> Result<()> {
                 .map_err(|e| lib::error::Error::Other(e.to_string()))?
         };
 
-        let payload = parse_invite(&invite_link)?;
+        let payload = parse_invite(&invite_token)?;
 
         let pb = spinner(&format!(
             "Connecting to vault '{}'…",
