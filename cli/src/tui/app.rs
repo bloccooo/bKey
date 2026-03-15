@@ -75,6 +75,9 @@ pub struct App {
     pub store: Arc<Store>,
     pub session: Session,
     pub invite_link: String,
+    pub account_name: String,
+    pub workspace_name: String,
+    pub storage_backend: String,
 
     pub mode: Mode,
     pub focus: Focus,
@@ -132,6 +135,9 @@ impl App {
         store: Store,
         session: Session,
         invite_link: String,
+        account_name: String,
+        workspace_name: String,
+        storage_backend: String,
     ) -> Result<Self> {
         let store = Arc::new(store);
         let mut app = Self {
@@ -139,8 +145,11 @@ impl App {
             store,
             session,
             invite_link,
+            account_name,
+            workspace_name,
+            storage_backend,
             mode: Mode::List,
-            focus: Focus::Namespaces,
+            focus: Focus::Secrets,
             ns_idx: 0,
             sec_idx: 0,
             member_idx: 0,
@@ -427,9 +436,9 @@ impl App {
             KeyCode::Char('q') => return Ok(true),
             KeyCode::Tab => {
                 self.focus = match &self.focus {
-                    Focus::Namespaces => Focus::Secrets,
-                    Focus::Secrets => Focus::Members,
-                    Focus::Members => Focus::Namespaces,
+                    Focus::Secrets => Focus::Namespaces,
+                    Focus::Namespaces => Focus::Members,
+                    Focus::Members => Focus::Secrets,
                 };
             }
             KeyCode::Char('v') => {

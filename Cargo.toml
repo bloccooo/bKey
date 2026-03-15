@@ -3,7 +3,7 @@ members = ["lib", "cli"]
 resolver = "2"
 
 [workspace.package]
-version = "0.0.29"
+version = "0.0.30"
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "fs"] }

@@ -3,8 +3,7 @@ use ratatui::{
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
-        Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState,
-        Wrap,
+        Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Table, TableState, Wrap,
     },
     Frame,
 };
@@ -27,35 +26,67 @@ pub fn render(f: &mut Frame, app: &App) {
 fn render_list(f: &mut Frame, app: &App) {
     let area = f.area();
 
-    // Outer vertical split: body | footer
+    // Outer vertical split: header | body | footer
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(5),
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
         .split(area);
 
-    // Body: members row on top, then namespaces | secrets
+    render_header(f, app, main_chunks[0]);
+
+    // Body: secrets | namespaces on top, members on bottom
     let body_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(8), Constraint::Min(0)])
-        .split(main_chunks[0]);
+        .constraints([Constraint::Min(0), Constraint::Length(8)])
+        .split(main_chunks[1]);
 
-    render_members(f, app, body_chunks[0]);
-
-    // Namespaces | Secrets split
+    // Secrets (left) | Namespaces (right) split
     let pane_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
-        .split(body_chunks[1]);
+        .constraints([Constraint::Percentage(75), Constraint::Percentage(25)])
+        .split(body_chunks[0]);
 
-    render_namespaces(f, app, pane_chunks[0]);
-    render_secrets(f, app, pane_chunks[1]);
+    render_secrets(f, app, pane_chunks[0]);
+    render_namespaces(f, app, pane_chunks[1]);
 
-    render_footer(f, app, main_chunks[1]);
+    render_members(f, app, body_chunks[1]);
+
+    render_footer(f, app, main_chunks[2]);
+}
+
+fn render_header(f: &mut Frame, app: &App, area: Rect) {
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    let lines = vec![
+        Line::from(Span::styled(
+            format!("Envi · v{VERSION}"),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::raw(app.account_name.clone())),
+        Line::from(Span::raw(format!(
+            "{} · {}",
+            app.workspace_name.clone(),
+            app.storage_backend.clone()
+        ))),
+    ];
+    let block = Block::default()
+        .title(" Envisible ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    f.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn render_footer(f: &mut Frame, app: &App, area: Rect) {
     if let Some(id) = &app.namespace_to_delete {
-        let name = app.namespaces.iter().find(|n| &n.id == id)
+        let name = app
+            .namespaces
+            .iter()
+            .find(|n| &n.id == id)
             .map(|n| n.name.as_str())
             .unwrap_or("namespace");
         let line = Line::from(vec![Span::styled(
@@ -66,7 +97,10 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
     if let Some(id) = &app.secret_to_delete {
-        let name = app.secrets.iter().find(|s| &s.id == id)
+        let name = app
+            .secrets
+            .iter()
+            .find(|s| &s.id == id)
             .map(|s| s.name.as_str())
             .unwrap_or("secret");
         let line = Line::from(vec![Span::styled(
@@ -79,15 +113,16 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
 
     // Member confirmation dialogs take priority
     if let Some(id) = &app.member_to_delete {
-        let email = app.members.iter().find(|m| &m.id == id)
+        let email = app
+            .members
+            .iter()
+            .find(|m| &m.id == id)
             .map(|m| m.email.as_str())
             .unwrap_or("member");
-        let line = Line::from(vec![
-            Span::styled(
-                format!("Remove {email}? [y] Yes  [n] No"),
-                Style::default().fg(Color::Yellow),
-            ),
-        ]);
+        let line = Line::from(vec![Span::styled(
+            format!("Remove {email}? [y] Yes  [n] No"),
+            Style::default().fg(Color::Yellow),
+        )]);
         f.render_widget(Paragraph::new(line), area);
         return;
     }
@@ -100,15 +135,16 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
         return;
     }
     if let Some(id) = &app.member_to_grant {
-        let email = app.members.iter().find(|m| &m.id == id)
+        let email = app
+            .members
+            .iter()
+            .find(|m| &m.id == id)
             .map(|m| m.email.as_str())
             .unwrap_or("member");
-        let line = Line::from(vec![
-            Span::styled(
-                format!("Grant access to {email}? [y] Yes  [n] No"),
-                Style::default().fg(Color::Yellow),
-            ),
-        ]);
+        let line = Line::from(vec![Span::styled(
+            format!("Grant access to {email}? [y] Yes  [n] No"),
+            Style::default().fg(Color::Yellow),
+        )]);
         f.render_widget(Paragraph::new(line), area);
         return;
     }
@@ -122,10 +158,13 @@ fn render_footer(f: &mut Frame, app: &App, area: Rect) {
                 "[n] New  [e] Edit  [d] Delete  [y] Copy value  [v] Show values  [Tab] Switch  [q] Quit"
             }
         }
-        Focus::Members => "[g] Grant access  [d] Remove  [r] Rotate DEK  [i] Invite  [Tab] Switch  [q] Quit",
+        Focus::Members => {
+            "[g] Grant access  [d] Remove  [r] Rotate DEK  [i] Invite  [Tab] Switch  [q] Quit"
+        }
     };
 
-    let copied_recently = app.copied_at
+    let copied_recently = app
+        .copied_at
         .map(|t| t.elapsed().as_secs() < 2)
         .unwrap_or(false);
 
@@ -380,7 +419,9 @@ fn render_form(f: &mut Frame, app: &App) {
             // Current field
             lines.push(Line::from(vec![Span::styled(
                 format!("▶ {} ", field.label),
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )]));
 
             // Input line with cursor
@@ -397,7 +438,11 @@ fn render_form(f: &mut Frame, app: &App) {
             } else {
                 input.chars().take(cursor_pos).collect::<String>()
             };
-            let at_cursor = display.chars().nth(cursor_pos).map(|c| c.to_string()).unwrap_or_else(|| " ".to_string());
+            let at_cursor = display
+                .chars()
+                .nth(cursor_pos)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| " ".to_string());
             let after_cursor = if field.secret {
                 let after_len = input.len().saturating_sub(cursor_pos + 1);
                 "•".repeat(after_len)
@@ -451,16 +496,25 @@ fn render_textarea_form(f: &mut Frame, app: &App, fields: &[super::app::FormFiel
     for i in 0..app.field_idx {
         let field = &fields[i];
         let value = app.collected_values.get(i).cloned().unwrap_or_default();
-        let display = if field.secret { "••••••••".to_string() } else { value };
+        let display = if field.secret {
+            "••••••••".to_string()
+        } else {
+            value
+        };
         header_lines.push(Line::from(vec![
-            Span::styled(format!("  {} ", field.label), Style::default().fg(Color::DarkGray)),
+            Span::styled(
+                format!("  {} ", field.label),
+                Style::default().fg(Color::DarkGray),
+            ),
             Span::styled(display, Style::default().fg(Color::Green)),
         ]));
         header_lines.push(Line::from(""));
     }
     header_lines.push(Line::from(vec![Span::styled(
         format!("▶ {} ", fields[app.field_idx].label),
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD),
     )]));
     f.render_widget(Paragraph::new(header_lines), chunks[0]);
 
@@ -600,7 +654,9 @@ fn render_invite(f: &mut Frame, app: &App) {
         Line::from(""),
         Line::from(vec![Span::styled(
             "Invite Link",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
         )]),
         Line::from(""),
         Line::from(vec![Span::styled(
@@ -645,7 +701,12 @@ fn render_invite(f: &mut Frame, app: &App) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
 
-    f.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .wrap(Wrap { trim: false }),
+        area,
+    );
 }
 
 // --- Helpers ---
@@ -654,7 +715,12 @@ fn render_invite(f: &mut Frame, app: &App) {
 /// the list overflows the visible area and where the selection sits.
 ///
 /// `overhead` = rows consumed by non-item chrome (borders, header rows, etc.)
-fn scroll_indicators(selected: usize, total: usize, area_height: usize, overhead: usize) -> &'static str {
+fn scroll_indicators(
+    selected: usize,
+    total: usize,
+    area_height: usize,
+    overhead: usize,
+) -> &'static str {
     let visible = area_height.saturating_sub(overhead);
     if total <= visible {
         return "";

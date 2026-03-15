@@ -3,6 +3,7 @@ use lib::{
     crypto::derive_private_key,
     error::{Error, Result},
     invite::{generate_invite, WorkspacePayload},
+    storage::StorageConfig,
     store::{unlock, Store},
 };
 
@@ -53,5 +54,13 @@ pub async fn run() -> Result<()> {
         },
     )?;
 
-    crate::tui::run(doc, store, session, invite_link).await
+    let storage_backend = match &workspace.storage {
+        StorageConfig::Fs(_) => "Local FS",
+        StorageConfig::S3(_) => "S3",
+        StorageConfig::R2(_) => "R2",
+        StorageConfig::Webdav(_) => "WebDAV",
+        StorageConfig::Github(_) => "GitHub",
+    }.to_string();
+
+    crate::tui::run(doc, store, session, invite_link, config.member_name, workspace.name, storage_backend).await
 }
